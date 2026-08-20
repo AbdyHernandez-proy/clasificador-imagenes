@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clasificador de Imágenes</title>
+    <link rel="stylesheet" href="./src/style.css">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1>🖼️ Clasificador de Imágenes IA</h1>
+            <p class="subtitle">Clasifica objetos en tiempo real usando TensorFlow.js</p>
+        </header>
+
+        <main class="main-content">
+            <div class="control-panel">
+                <div class="model-selector">
+                    <label for="model-select">Modelo:</label>
+                    <select id="model-select">
+                        <option value="mobilenet">MobileNet (Rápido)</option>
+                        <option value="coco-ssd">COCO-SSD (Detección)</option>
+                    </select>
+                </div>
+
+                <div class="input-section">
+                    <div class="upload-area">
+                        <input type="file" id="image-input" accept="image/*">
+                        <label for="image-input" class="upload-label">
+                            <span class="upload-icon">📤</span>
+                            <span class="upload-text">Sube una imagen o captura con webcam</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="webcam-section">
+                    <button id="webcam-toggle" class="btn btn-primary">
+                        <span class="btn-icon">📹</span> Usar Webcam
+                    </button>
+                </div>
+            </div>
+
+            <div class="content-wrapper">
+                <div class="image-section">
+                    <div class="image-container">
+                        <img id="preview-image" src="" alt="Vista previa">
+                        <video id="webcam-video" style="display: none;"></video>
+                    </div>
+                    <div id="canvas-container" style="display: none;">
+                        <canvas id="detection-canvas"></canvas>
+                    </div>
+                </div>
+
+                <aside class="results-panel">
+                    <div class="results-header">
+                        <h2>Resultados</h2>
+                        <div id="loading-spinner" class="spinner" style="display: none;"></div>
+                    </div>
+                    
+                    <div id="results-container" class="results-list">
+                        <p class="empty-state">Carga una imagen para comenzar</p>
+                    </div>
+
+                    <div class="stats-panel">
+                        <div id="stats" class="stats-grid">
+                            <div class="stat-item">
+                                <span class="stat-label">Confianza</span>
+                                <span id="confidence-value" class="stat-value">-</span>
+                            </div>
+                            <div class="stat-item">
+                                <span class="stat-label">Tiempo</span>
+                                <span id="time-value" class="stat-value">-</span>
+                            </div>
+                        </div>
+                    </div>
+                </aside>
+            </div>
+        </main>
+
+        <footer class="footer">
+            <p>Modelo: <span id="model-name">MobileNet</span> | Estado: <span id="model-status">Cargando...</span></p>
+        </footer>
+    </div>
+
+    <script type="module" src="./src/main.js"></script>
+</body>
+</html>

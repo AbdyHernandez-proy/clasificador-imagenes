@@ -1,0 +1,1 @@
+Sin incidentes activos.

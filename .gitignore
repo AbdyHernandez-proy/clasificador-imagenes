@@ -1,0 +1,32 @@
+# Dependencias
+node_modules/
+npm-debug.log
+yarn-error.log
+pnpm-debug.log
+
+# Compilación
+dist/
+build/
+.vite/
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Ambiente
+.env
+.env.local
+.env.*.local
+
+# Archivos temporales
+*.tmp
+*.temp
+.cache
+
+# OS
+Thumbs.db
+.DS_Store
