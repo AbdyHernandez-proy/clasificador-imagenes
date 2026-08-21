@@ -150,6 +150,24 @@ export class ClassifierUI {
         this.canvasContainer.style.display = 'none';
     }
 
+    populateModelSelector(models, selectedModelId) {
+        const modelSelect = requireElementById('model-select');
+        modelSelect.replaceChildren();
+
+        models.forEach((model) => {
+            const option = document.createElement('option');
+            option.value = model.id;
+            option.textContent = model.name;
+            option.selected = model.id === selectedModelId;
+            modelSelect.append(option);
+        });
+    }
+
+    updateModelName(name) {
+        const modelName = requireElementById('model-name');
+        modelName.textContent = name;
+    }
+
     updateModelStatus(status) {
         this.modelStatus.textContent = status;
     }
@@ -178,11 +196,11 @@ export class ClassifierUI {
     }
 
     getPredictionLabel(prediction) {
-        return prediction.className || prediction.class || 'Sin etiqueta';
+        return prediction.className || prediction.class || prediction.label || 'Sin etiqueta';
     }
 
     getPredictionConfidence(prediction) {
-        return prediction.probability ?? prediction.score ?? 0;
+        return prediction.probability ?? prediction.score ?? prediction.confidence ?? 0;
     }
 
     getSourceSize(sourceElement) {

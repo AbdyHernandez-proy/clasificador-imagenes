@@ -3,14 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Clasificador de Imágenes</title>
+    <title>Clasificador de Imagenes</title>
     <link rel="stylesheet" href="./src/style.css">
 </head>
 <body>
     <div class="container">
         <header class="header">
-            <h1>🖼️ Clasificador de Imágenes IA</h1>
-            <p class="subtitle">Clasifica objetos en tiempo real usando TensorFlow.js</p>
+            <h1>Clasificador de Imagenes IA</h1>
+            <p class="subtitle">Clasifica objetos desde el navegador o desde el backend interno</p>
         </header>
 
         <main class="main-content">
@@ -18,8 +18,8 @@
                 <div class="model-selector">
                     <label for="model-select">Modelo:</label>
                     <select id="model-select">
-                        <option value="mobilenet">MobileNet (Rápido)</option>
-                        <option value="coco-ssd">COCO-SSD (Detección)</option>
+                        <option value="browser:mobilenet">MobileNet (Navegador)</option>
+                        <option value="browser:coco-ssd">COCO-SSD (Navegador)</option>
                     </select>
                 </div>
 
@@ -27,7 +27,7 @@
                     <div class="upload-area">
                         <input type="file" id="image-input" accept="image/*">
                         <label for="image-input" class="upload-label">
-                            <span class="upload-icon">📤</span>
+                            <span class="upload-icon">Subir</span>
                             <span class="upload-text">Sube una imagen o captura con webcam</span>
                         </label>
                     </div>
@@ -35,7 +35,7 @@
 
                 <div class="webcam-section">
                     <button id="webcam-toggle" class="btn btn-primary">
-                        <span class="btn-icon">📹</span> Usar Webcam
+                        <span class="btn-icon">Camara</span> Usar Webcam
                     </button>
                 </div>
             </div>

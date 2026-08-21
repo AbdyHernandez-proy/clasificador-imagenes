@@ -1,4 +1,25 @@
 {
-  "default_model": null,
-  "models": []
+  "default_model": "visual-profile-v1",
+  "models": [
+    {
+      "id": "visual-profile-v1",
+      "name": "Perfil visual backend",
+      "version": "v1",
+      "runtime": "backend_builtin",
+      "task": "image_profile_classification",
+      "description": "Modelo backend de referencia para validar el flujo API. Clasifica brillo, orientacion y color dominante sin entrenamiento propio.",
+      "labels": [
+        "imagen clara",
+        "iluminacion media",
+        "imagen oscura",
+        "predominio rojo",
+        "predominio verde",
+        "predominio azul",
+        "tono neutro",
+        "formato horizontal",
+        "formato vertical",
+        "formato cuadrado"
+      ]
+    }
+  ]
 }

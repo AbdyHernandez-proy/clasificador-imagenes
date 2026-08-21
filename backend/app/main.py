@@ -1,4 +1,4 @@
-from fastapi import FastAPI, File, UploadFile
+from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.services.inference import InferenceService
@@ -32,5 +32,5 @@ def list_models() -> dict:
 
 
 @app.post("/predict")
-async def predict(image: UploadFile = File(...), model_id: str | None = None) -> dict:
+async def predict(image: UploadFile = File(...), model_id: str | None = Form(default=None)) -> dict:
     return await inference_service.predict(image=image, model_id=model_id)

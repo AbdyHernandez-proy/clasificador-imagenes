@@ -13,7 +13,7 @@ export class ModelManager {
 
     async loadModel(modelType) {
         try {
-            // Si el modelo ya está cargado, usarlo
+            // Si el modelo ya esta cargado, usarlo.
             if (this.models[modelType]) {
                 this.currentModelType = modelType;
                 this.currentModel = this.models[modelType];
@@ -21,7 +21,7 @@ export class ModelManager {
                 return;
             }
 
-            // Cargar nuevo modelo
+            // Cargar nuevo modelo.
             if (modelType === 'mobilenet') {
                 console.log('Cargando MobileNet...');
                 const mobilenet = await import('@tensorflow-models/mobilenet');
@@ -52,6 +52,11 @@ export class ModelManager {
     getModelConfig(modelType) {
         const modelUrl = this.modelUrls[modelType];
         return modelUrl ? { modelUrl } : undefined;
+    }
+
+    clearCurrentModel() {
+        this.currentModelType = null;
+        this.currentModel = null;
     }
 
     updateModelInfo() {

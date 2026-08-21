@@ -23,7 +23,6 @@ Clasificador_Imagenes/
 |-- ml/                    # Datasets, modelos, entrenamiento e inferencia
 |-- docs/                  # Documentacion tecnica y roadmap
 |-- .github/workflows/     # Deploy del frontend a GitHub Pages
-|-- AUDITORIA.md           # Estado y pasos siguientes
 |-- SETUP.md
 `-- README.md
 ```
@@ -35,12 +34,14 @@ Ubicacion: `frontend/`
 Responsabilidades actuales:
 
 - Mostrar la interfaz de clasificacion.
-- Permitir seleccionar modelo.
+- Cargar el listado de modelos desde el backend cuando este disponible.
+- Permitir seleccionar modelos del navegador o del backend.
 - Permitir subir imagenes o usar webcam.
 - Validar imagenes antes de procesarlas.
 - Mostrar predicciones, confianza y tiempo de procesamiento.
 - Dibujar cajas de deteccion para COCO-SSD.
-- Mantener GitHub Pages funcionando para pruebas remotas.
+- Mantener GitHub Pages funcionando para pruebas remotas con modelos del navegador.
+- Usar fallback automatico a modelos del navegador si el backend no esta disponible.
 
 Comandos:
 
@@ -56,15 +57,16 @@ npm run preview
 
 Ubicacion: `backend/`
 
-Responsabilidades previstas:
+Responsabilidades actuales:
 
 - Exponer API interna para la web.
 - Listar modelos registrados en `ml/registry.json`.
 - Recibir imagenes para inferencia.
 - Ejecutar el modelo seleccionado desde backend.
 - Devolver predicciones normalizadas al frontend.
+- Validar tipo y tamano de imagen antes de procesar.
 
-Endpoints iniciales:
+Endpoints:
 
 - `GET /health`
 - `GET /models`
@@ -107,23 +109,36 @@ ml/
 
 No se usara base de datos inicialmente. El backend leera `ml/registry.json`.
 
-Ejemplo futuro:
+Registro actual:
 
 ```json
 {
-  "default_model": "frutas-v1",
+  "default_model": "visual-profile-v1",
   "models": [
     {
-      "id": "frutas-v1",
-      "name": "Clasificador de frutas",
+      "id": "visual-profile-v1",
+      "name": "Perfil visual backend",
       "version": "v1",
-      "path": "ml/models/frutas/v1/model.keras",
-      "labels": "ml/models/frutas/v1/labels.json",
-      "metrics": "ml/models/frutas/v1/metrics.json"
+      "runtime": "backend_builtin",
+      "task": "image_profile_classification"
     }
   ]
 }
 ```
+
+## Modelos actuales
+
+### MobileNet (Navegador)
+
+Modelo preentrenado de TensorFlow.js para clasificacion general de imagenes. Corre directamente en el navegador, soporta imagenes cargadas y webcam, y devuelve etiquetas con probabilidad.
+
+### COCO-SSD (Navegador)
+
+Modelo preentrenado de TensorFlow.js para deteccion de objetos. Corre directamente en el navegador, soporta imagenes cargadas y webcam, y permite dibujar cajas de deteccion sobre la imagen.
+
+### Perfil visual backend
+
+Modelo interno de referencia registrado como `visual-profile-v1`. Corre en FastAPI con Pillow y clasifica propiedades visuales basicas: brillo, color dominante y orientacion. No es todavia un modelo entrenado propio; existe para validar el flujo backend completo mientras se construyen datasets, entrenamiento y exportacion de modelos reales.
 
 ## GitHub Pages
 
@@ -146,7 +161,3 @@ Por decision de arquitectura, el proyecto no incluye inicialmente:
 - Base de datos.
 
 La persistencia inicial se resuelve con carpetas y archivos versionables.
-
-## Auditoria y siguientes pasos
-
-Ver `AUDITORIA.md`.

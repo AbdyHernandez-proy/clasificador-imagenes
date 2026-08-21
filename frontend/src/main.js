@@ -1,13 +1,34 @@
+import { ClassifierApiClient } from './apiClient.js';
 import { requireElementById, requireSelector } from './dom.js';
 import { ClassifierUI } from './ui.js';
 import { ImageProcessor } from './imageProcessor.js';
 import { ModelManager } from './modelManager.js';
+
+const BROWSER_MODELS = [
+    {
+        id: 'browser:mobilenet',
+        name: 'MobileNet (Navegador)',
+        runtime: 'browser',
+        modelType: 'mobilenet',
+        supportsWebcam: true
+    },
+    {
+        id: 'browser:coco-ssd',
+        name: 'COCO-SSD (Navegador)',
+        runtime: 'browser',
+        modelType: 'coco-ssd',
+        supportsWebcam: true
+    }
+];
 
 class ImageClassifier {
     constructor() {
         this.ui = new ClassifierUI();
         this.imageProcessor = new ImageProcessor();
         this.modelManager = new ModelManager();
+        this.apiClient = new ClassifierApiClient();
+        this.availableModels = [...BROWSER_MODELS];
+        this.currentModelInfo = BROWSER_MODELS[0];
         this.currentModel = null;
         this.webcamActive = false;
         this.webcamStream = null;
@@ -19,15 +40,35 @@ class ImageClassifier {
 
     async initialize() {
         try {
-            // Cargar modelo inicial
-            await this.modelManager.loadModel('mobilenet');
-            this.currentModel = this.modelManager.getCurrentModel();
+            await this.loadBackendModels();
+            this.ui.populateModelSelector(this.availableModels, this.currentModelInfo.id);
+            await this.loadSelectedModel(this.currentModelInfo);
             this.ui.updateModelStatus('Listo');
             this.setupEventListeners();
         } catch (error) {
             console.error('Error al inicializar:', error);
             this.ui.updateModelStatus('Error al cargar modelo');
             this.ui.showError(this.getModelLoadErrorMessage(error));
+        }
+    }
+
+    async loadBackendModels() {
+        try {
+            const response = await this.apiClient.listModels();
+            const backendModels = (response.models || []).map((model) => ({
+                id: `backend:${model.id}`,
+                backendId: model.id,
+                name: `${model.name || model.id} (Backend)`,
+                runtime: 'backend',
+                modelType: model.task || 'backend',
+                supportsWebcam: false,
+                metadata: model
+            }));
+
+            this.availableModels = [...BROWSER_MODELS, ...backendModels];
+        } catch (error) {
+            console.info('Backend no disponible; usando modelos del navegador.', error);
+            this.availableModels = [...BROWSER_MODELS];
         }
     }
 
@@ -40,7 +81,6 @@ class ImageClassifier {
         modelSelect.addEventListener('change', (e) => this.switchModel(e.target.value));
         webcamToggle.addEventListener('click', () => this.toggleWebcam());
 
-        // Drag and drop
         const uploadArea = requireSelector('.upload-area');
         uploadArea.addEventListener('dragover', (e) => this.handleDragOver(e));
         uploadArea.addEventListener('dragleave', (e) => this.handleDragLeave(e));
@@ -64,22 +104,21 @@ class ImageClassifier {
             this.ui.showLoading();
             this.ui.clearDetections();
             const startTime = performance.now();
-
-            // Procesar imagen
             const imageElement = await this.imageProcessor.loadImage(imageFile);
-            const predictions = await this.getCurrentPredictions(imageElement);
+            const predictions = await this.getCurrentPredictions(imageElement, imageFile);
 
             if (!this.isCurrentRun(runId)) return;
 
             const endTime = performance.now();
-            const processingTime = (endTime - startTime).toFixed(2);
-            const modelName = this.modelManager.getCurrentModelName();
+            const processingTime = this.currentModelInfo.runtime === 'backend' && predictions.processing_time_ms
+                ? predictions.processing_time_ms.toFixed(2)
+                : (endTime - startTime).toFixed(2);
+            const normalizedPredictions = this.normalizePredictions(predictions);
 
-            // Mostrar resultados
-            this.ui.displayResults(predictions, modelName);
-            this.ui.updateStats(predictions, processingTime);
+            this.ui.displayResults(normalizedPredictions, this.currentModelInfo.name);
+            this.ui.updateStats(normalizedPredictions, processingTime);
             this.ui.showImage(imageElement);
-            this.ui.renderDetections(predictions, imageElement, this.modelManager.getCurrentModelType());
+            this.ui.renderDetections(normalizedPredictions, imageElement, this.modelManager.getCurrentModelType());
             this.ui.hideLoading();
         } catch (error) {
             if (!this.isCurrentRun(runId)) return;
@@ -89,7 +128,11 @@ class ImageClassifier {
         }
     }
 
-    async getCurrentPredictions(imageElement) {
+    async getCurrentPredictions(imageElement, imageFile) {
+        if (this.currentModelInfo.runtime === 'backend') {
+            return await this.apiClient.predict(imageFile, this.currentModelInfo.backendId);
+        }
+
         const modelType = this.modelManager.getCurrentModelType();
         
         if (modelType === 'mobilenet') {
@@ -101,18 +144,20 @@ class ImageClassifier {
         throw new Error('No hay un modelo valido cargado para procesar la imagen.');
     }
 
-    async switchModel(modelName) {
+    async switchModel(modelId) {
         const runId = this.nextRunId();
+        const nextModel = this.availableModels.find((model) => model.id === modelId);
+
+        if (!nextModel) {
+            this.ui.showError('El modelo seleccionado no esta disponible.');
+            return;
+        }
 
         try {
             this.ui.updateModelStatus('Cambiando modelo...');
             this.stopWebcam({ invalidate: false });
-            
-            await this.modelManager.loadModel(modelName);
+            await this.loadSelectedModel(nextModel);
             if (!this.isCurrentRun(runId)) return;
-
-            this.currentModel = this.modelManager.getCurrentModel();
-            
             this.ui.updateModelStatus('Listo');
             this.ui.clearResults();
         } catch (error) {
@@ -124,6 +169,20 @@ class ImageClassifier {
         }
     }
 
+    async loadSelectedModel(modelInfo) {
+        this.currentModelInfo = modelInfo;
+
+        if (modelInfo.runtime === 'backend') {
+            this.currentModel = null;
+            this.modelManager.clearCurrentModel();
+            this.ui.updateModelName(modelInfo.name);
+            return;
+        }
+
+        await this.modelManager.loadModel(modelInfo.modelType);
+        this.currentModel = this.modelManager.getCurrentModel();
+    }
+
     async toggleWebcam() {
         if (this.webcamActive) {
             this.stopWebcam();
@@ -133,6 +192,11 @@ class ImageClassifier {
     }
 
     async startWebcam() {
+        if (!this.currentModelInfo.supportsWebcam) {
+            this.ui.showError('La webcam solo esta disponible con modelos del navegador.');
+            return;
+        }
+
         if (!navigator.mediaDevices?.getUserMedia) {
             this.ui.showError('La webcam requiere un navegador compatible y ejecucion en localhost o HTTPS.');
             return;
@@ -146,7 +210,6 @@ class ImageClassifier {
             const video = requireElementById('webcam-video');
             const previewImage = requireElementById('preview-image');
 
-            // Obtener acceso a la webcam
             this.webcamStream = await navigator.mediaDevices.getUserMedia({
                 video: { width: 640, height: 480 }
             });
@@ -161,13 +224,12 @@ class ImageClassifier {
             video.style.display = 'block';
             previewImage.style.display = 'none';
 
-            // Procesar frames
             video.onloadedmetadata = () => {
                 video.play();
                 this.processWebcamFrames(video, runId);
             };
 
-            requireElementById('webcam-toggle').textContent = '⏹️ Detener Webcam';
+            requireElementById('webcam-toggle').textContent = 'Detener Webcam';
         } catch (error) {
             if (!this.isCurrentRun(runId)) return;
 
@@ -185,16 +247,17 @@ class ImageClassifier {
 
         try {
             const startTime = performance.now();
-            const predictions = await this.getCurrentPredictions(video);
+            const predictions = await this.getCurrentPredictions(video, null);
 
             if (!this.isCurrentRun(runId)) return;
 
             const endTime = performance.now();
             const processingTime = (endTime - startTime).toFixed(2);
+            const normalizedPredictions = this.normalizePredictions(predictions);
 
-            this.ui.displayResults(predictions, this.modelManager.getCurrentModelName());
-            this.ui.updateStats(predictions, processingTime);
-            this.ui.renderDetections(predictions, video, this.modelManager.getCurrentModelType());
+            this.ui.displayResults(normalizedPredictions, this.currentModelInfo.name);
+            this.ui.updateStats(normalizedPredictions, processingTime);
+            this.ui.renderDetections(normalizedPredictions, video, this.modelManager.getCurrentModelType());
         } catch (error) {
             if (!this.isCurrentRun(runId)) return;
 
@@ -230,7 +293,7 @@ class ImageClassifier {
         this.webcamActive = false;
         this.processingFrame = false;
         this.ui.clearDetections();
-        requireElementById('webcam-toggle').textContent = '📹 Usar Webcam';
+        requireElementById('webcam-toggle').textContent = 'Usar Webcam';
     }
 
     handleDragOver(event) {
@@ -264,6 +327,11 @@ class ImageClassifier {
             this.ui.showError(error.message);
             return false;
         }
+    }
+
+    normalizePredictions(predictions) {
+        if (Array.isArray(predictions)) return predictions;
+        return predictions.predictions || [];
     }
 
     nextRunId() {
@@ -300,7 +368,6 @@ class ImageClassifier {
     }
 }
 
-// Inicializar cuando el DOM esté listo
 document.addEventListener('DOMContentLoaded', () => {
     try {
         new ImageClassifier();
