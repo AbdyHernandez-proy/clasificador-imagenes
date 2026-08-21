@@ -1,10 +1,11 @@
 # Dependencias
 node_modules/
-npm-debug.log
-yarn-error.log
-pnpm-debug.log
+.venv/
+venv/
+__pycache__/
+*.py[cod]
 
-# Compilación
+# Compilacion
 dist/
 build/
 .vite/
@@ -26,6 +27,7 @@ build/
 *.tmp
 *.temp
 .cache
+.pytest_cache/
 
 # OS
 Thumbs.db
