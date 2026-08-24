@@ -1,6 +1,7 @@
-from fastapi import FastAPI, File, Form, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.services.dataset_registry import DatasetRegistry
 from app.services.inference import InferenceService
 from app.services.model_registry import ModelRegistry
 
@@ -15,6 +16,7 @@ app.add_middleware(
 )
 
 registry = ModelRegistry()
+dataset_registry = DatasetRegistry()
 inference_service = InferenceService(registry)
 
 
@@ -23,12 +25,37 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
+@app.on_event("shutdown")
+def shutdown_workers() -> None:
+    inference_service.close()
+
+
 @app.get("/models")
 def list_models() -> dict:
     return {
         "default_model": registry.get_default_model_id(),
         "models": registry.list_models()
     }
+
+
+@app.get("/models/registry")
+def list_model_registry() -> dict:
+    return registry.load()
+
+
+@app.get("/datasets")
+def list_datasets() -> dict:
+    return {
+        "datasets": dataset_registry.list_datasets()
+    }
+
+
+@app.get("/datasets/{dataset_id}")
+def get_dataset(dataset_id: str) -> dict:
+    dataset = dataset_registry.get_dataset(dataset_id)
+    if not dataset:
+        raise HTTPException(status_code=404, detail=f"Dataset '{dataset_id}' no existe.")
+    return {"dataset": dataset}
 
 
 @app.post("/predict")

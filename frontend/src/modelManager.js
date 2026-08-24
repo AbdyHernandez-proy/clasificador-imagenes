@@ -1,6 +1,9 @@
 const MODEL_URLS = {
     mobilenet: null,
-    'coco-ssd': null
+    'coco-ssd': null,
+    blazeface: null,
+    handpose: null,
+    'body-pix': null
 };
 
 export class ModelManager {
@@ -9,10 +12,13 @@ export class ModelManager {
         this.modelUrls = modelUrls;
         this.currentModelType = null;
         this.currentModel = null;
+        this.backendReady = false;
     }
 
     async loadModel(modelType) {
         try {
+            await this.ensureTensorFlowBackend();
+
             // Si el modelo ya esta cargado, usarlo.
             if (this.models[modelType]) {
                 this.currentModelType = modelType;
@@ -38,6 +44,37 @@ export class ModelManager {
                 this.models['coco-ssd'] = model;
                 this.currentModelType = 'coco-ssd';
                 this.currentModel = model;
+            } else if (modelType === 'blazeface') {
+                console.log('Cargando BlazeFace...');
+                const blazeface = await import('@tensorflow-models/blazeface');
+                const model = await blazeface.load();
+                this.models.blazeface = model;
+                this.currentModelType = 'blazeface';
+                this.currentModel = model;
+            } else if (modelType === 'handpose') {
+                console.log('Cargando HandPose...');
+                const handpose = await import('@tensorflow-models/handpose');
+                const model = await handpose.load({
+                    detectionConfidence: 0.82,
+                    scoreThreshold: 0.75,
+                    iouThreshold: 0.3,
+                    maxContinuousChecks: 5
+                });
+                this.models.handpose = model;
+                this.currentModelType = 'handpose';
+                this.currentModel = model;
+            } else if (modelType === 'body-pix') {
+                console.log('Cargando BodyPix...');
+                const bodyPix = await import('@tensorflow-models/body-pix');
+                const model = await bodyPix.load({
+                    architecture: 'MobileNetV1',
+                    outputStride: 16,
+                    multiplier: 0.75,
+                    quantBytes: 2
+                });
+                this.models['body-pix'] = model;
+                this.currentModelType = 'body-pix';
+                this.currentModel = model;
             } else {
                 throw new Error(`Modelo no soportado: ${modelType}`);
             }
@@ -47,6 +84,30 @@ export class ModelManager {
             console.error(`Error cargando modelo ${modelType}:`, error);
             throw error;
         }
+    }
+
+    async ensureTensorFlowBackend() {
+        if (this.backendReady) return;
+
+        const tf = await import('@tensorflow/tfjs');
+
+        try {
+            await import('@tensorflow/tfjs-backend-webgl');
+            const webglReady = await tf.setBackend('webgl');
+            if (!webglReady) {
+                throw new Error('WebGL no esta disponible.');
+            }
+        } catch (error) {
+            console.warn('No se pudo usar WebGL; usando CPU para TensorFlow.js.', error);
+            await import('@tensorflow/tfjs-backend-cpu');
+            const cpuReady = await tf.setBackend('cpu');
+            if (!cpuReady) {
+                throw new Error('No se pudo inicializar TensorFlow.js.');
+            }
+        }
+
+        await tf.ready();
+        this.backendReady = true;
     }
 
     getModelConfig(modelType) {
@@ -79,13 +140,22 @@ export class ModelManager {
             return 'MobileNet';
         } else if (this.currentModelType === 'coco-ssd') {
             return 'COCO-SSD';
+        } else if (this.currentModelType === 'blazeface') {
+            return 'BlazeFace';
+        } else if (this.currentModelType === 'handpose') {
+            return 'HandPose';
+        } else if (this.currentModelType === 'body-pix') {
+            return 'BodyPix';
         }
         return 'Desconocido';
     }
 
     disposeModel(modelType) {
-        if (this.models[modelType]) {
+        if (this.models[modelType]?.dispose) {
             this.models[modelType].dispose();
+        }
+
+        if (this.models[modelType]) {
             delete this.models[modelType];
         }
     }

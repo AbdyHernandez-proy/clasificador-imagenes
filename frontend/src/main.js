@@ -2,24 +2,8 @@ import { ClassifierApiClient } from './apiClient.js';
 import { requireElementById, requireSelector } from './dom.js';
 import { ClassifierUI } from './ui.js';
 import { ImageProcessor } from './imageProcessor.js';
+import { BROWSER_MODELS } from './modelCatalog.js';
 import { ModelManager } from './modelManager.js';
-
-const BROWSER_MODELS = [
-    {
-        id: 'browser:mobilenet',
-        name: 'MobileNet (Navegador)',
-        runtime: 'browser',
-        modelType: 'mobilenet',
-        supportsWebcam: true
-    },
-    {
-        id: 'browser:coco-ssd',
-        name: 'COCO-SSD (Navegador)',
-        runtime: 'browser',
-        modelType: 'coco-ssd',
-        supportsWebcam: true
-    }
-];
 
 class ImageClassifier {
     constructor() {
@@ -33,7 +17,11 @@ class ImageClassifier {
         this.webcamActive = false;
         this.webcamStream = null;
         this.processingFrame = false;
+        this.lastWebcamInferenceAt = 0;
+        this.uploadedImageActive = false;
+        this.currentImageFile = null;
         this.runId = 0;
+        this.eventListenersReady = false;
         
         this.initialize();
     }
@@ -42,9 +30,9 @@ class ImageClassifier {
         try {
             await this.loadBackendModels();
             this.ui.populateModelSelector(this.availableModels, this.currentModelInfo.id);
+            this.setupEventListeners();
             await this.loadSelectedModel(this.currentModelInfo);
             this.ui.updateModelStatus('Listo');
-            this.setupEventListeners();
         } catch (error) {
             console.error('Error al inicializar:', error);
             this.ui.updateModelStatus('Error al cargar modelo');
@@ -58,10 +46,15 @@ class ImageClassifier {
             const backendModels = (response.models || []).map((model) => ({
                 id: `backend:${model.id}`,
                 backendId: model.id,
-                name: `${model.name || model.id} (Backend)`,
+                name: model.name || model.id,
+                usageLabel: model.task || 'Backend',
                 runtime: 'backend',
                 modelType: model.task || 'backend',
                 supportsWebcam: false,
+                task: model.task || 'Inferencia backend',
+                algorithm: model.runtime || 'backend',
+                efficiency: model.efficiency || 'Medio',
+                description: model.description || 'Modelo registrado en el backend interno.',
                 metadata: model
             }));
 
@@ -73,18 +66,91 @@ class ImageClassifier {
     }
 
     setupEventListeners() {
+        if (this.eventListenersReady) return;
+
         const imageInput = requireElementById('image-input');
         const modelSelect = requireElementById('model-select');
-        const webcamToggle = requireElementById('webcam-toggle');
+        const webcamStart = requireElementById('webcam-start');
+        const webcamStop = requireElementById('webcam-stop');
+        const clearImageButton = requireElementById('clear-image-button');
+        const activeModelOverlay = requireElementById('active-model-overlay');
+        const activeModelTrigger = requireElementById('active-model-trigger');
+        const activeModelMenu = requireElementById('active-model-menu');
 
         imageInput.addEventListener('change', (e) => this.handleImageUpload(e));
-        modelSelect.addEventListener('change', (e) => this.switchModel(e.target.value));
-        webcamToggle.addEventListener('click', () => this.toggleWebcam());
+        modelSelect.addEventListener('click', (e) => this.handleModelOptionClick(e));
+        modelSelect.addEventListener('keydown', (e) => this.handleModelOptionKeydown(e));
+        webcamStart.addEventListener('click', () => this.startWebcam());
+        webcamStop.addEventListener('click', () => this.stopWebcam());
+        clearImageButton.addEventListener('click', () => this.clearUploadedImage());
+        activeModelTrigger.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.ui.toggleActiveModelMenu();
+        });
+        activeModelMenu.addEventListener('click', (e) => this.handleActiveModelMenuClick(e));
+        document.addEventListener('click', (e) => {
+            if (!activeModelOverlay.contains(e.target)) {
+                this.ui.closeActiveModelMenu();
+            }
+        });
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                this.ui.closeActiveModelMenu();
+            }
+        });
 
         const uploadArea = requireSelector('.upload-area');
         uploadArea.addEventListener('dragover', (e) => this.handleDragOver(e));
         uploadArea.addEventListener('dragleave', (e) => this.handleDragLeave(e));
         uploadArea.addEventListener('drop', (e) => this.handleDrop(e));
+
+        this.eventListenersReady = true;
+    }
+
+    handleActiveModelMenuClick(event) {
+        const option = event.target.closest('.active-model-menu-item');
+        if (!option) return;
+
+        this.ui.closeActiveModelMenu();
+        this.switchModel(option.dataset.modelId);
+    }
+
+    handleModelOptionClick(event) {
+        const option = event.target.closest('.model-option');
+        if (!option) return;
+
+        this.switchModel(option.dataset.modelId);
+    }
+
+    handleModelOptionKeydown(event) {
+        const option = event.target.closest('.model-option');
+        if (!option) return;
+
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            this.switchModel(option.dataset.modelId);
+            return;
+        }
+
+        const directionByKey = {
+            ArrowRight: 1,
+            ArrowDown: 1,
+            ArrowLeft: -1,
+            ArrowUp: -1
+        };
+        const direction = directionByKey[event.key];
+        if (!direction) return;
+
+        const options = [...event.currentTarget.querySelectorAll('.model-option')];
+        const currentIndex = options.indexOf(option);
+        if (currentIndex === -1) return;
+
+        const nextIndex = (currentIndex + direction + options.length) % options.length;
+        const nextOption = options[nextIndex];
+
+        event.preventDefault();
+        nextOption.focus();
+        this.switchModel(nextOption.dataset.modelId);
     }
 
     async handleImageUpload(event) {
@@ -93,6 +159,9 @@ class ImageClassifier {
 
         if (!this.validateSelectedImage(file)) return;
 
+        this.uploadedImageActive = true;
+        this.currentImageFile = file;
+        this.ui.updateSelectedFileName(file.name);
         this.stopWebcam();
         await this.classifyImage(file);
     }
@@ -102,9 +171,11 @@ class ImageClassifier {
 
         try {
             this.ui.showLoading();
+            this.ui.showActiveModel(this.currentModelInfo.name, true);
             this.ui.clearDetections();
             const startTime = performance.now();
             const imageElement = await this.imageProcessor.loadImage(imageFile);
+            this.ui.showImage(imageElement);
             const predictions = await this.getCurrentPredictions(imageElement, imageFile);
 
             if (!this.isCurrentRun(runId)) return;
@@ -117,13 +188,14 @@ class ImageClassifier {
 
             this.ui.displayResults(normalizedPredictions, this.currentModelInfo.name);
             this.ui.updateStats(normalizedPredictions, processingTime);
-            this.ui.showImage(imageElement);
             this.ui.renderDetections(normalizedPredictions, imageElement, this.modelManager.getCurrentModelType());
             this.ui.hideLoading();
+            this.ui.showActiveModel(this.currentModelInfo.name, false);
         } catch (error) {
             if (!this.isCurrentRun(runId)) return;
 
             console.error('Error clasificando imagen:', error);
+            this.ui.showActiveModel(this.currentModelInfo.name, false);
             this.ui.showError(error.message || 'Error al procesar la imagen.');
         }
     }
@@ -136,9 +208,20 @@ class ImageClassifier {
         const modelType = this.modelManager.getCurrentModelType();
         
         if (modelType === 'mobilenet') {
-            return await this.currentModel.classify(imageElement, 5);
+            const classifications = await this.currentModel.classify(imageElement, 5);
+            return this.normalizeImageClassifications(classifications, imageElement);
         } else if (modelType === 'coco-ssd') {
-            return await this.currentModel.detect(imageElement);
+            const detections = await this.currentModel.detect(imageElement);
+            return this.normalizeObjectDetections(detections, imageElement);
+        } else if (modelType === 'blazeface') {
+            const faces = await this.currentModel.estimateFaces(imageElement, false);
+            return this.normalizeFaces(faces, imageElement);
+        } else if (modelType === 'handpose') {
+            const hands = await this.currentModel.estimateHands(imageElement);
+            return this.normalizeHands(hands, imageElement);
+        } else if (modelType === 'body-pix') {
+            const segmentation = await this.currentModel.segmentPerson(imageElement);
+            return this.normalizeBodySegmentation(segmentation, imageElement);
         }
 
         throw new Error('No hay un modelo valido cargado para procesar la imagen.');
@@ -147,6 +230,7 @@ class ImageClassifier {
     async switchModel(modelId) {
         const runId = this.nextRunId();
         const nextModel = this.availableModels.find((model) => model.id === modelId);
+        this.ui.closeActiveModelMenu();
 
         if (!nextModel) {
             this.ui.showError('El modelo seleccionado no esta disponible.');
@@ -159,7 +243,12 @@ class ImageClassifier {
             await this.loadSelectedModel(nextModel);
             if (!this.isCurrentRun(runId)) return;
             this.ui.updateModelStatus('Listo');
-            this.ui.clearResults();
+
+            if (this.currentImageFile) {
+                await this.classifyImage(this.currentImageFile);
+            } else {
+                this.ui.clearResults();
+            }
         } catch (error) {
             if (!this.isCurrentRun(runId)) return;
 
@@ -171,24 +260,23 @@ class ImageClassifier {
 
     async loadSelectedModel(modelInfo) {
         this.currentModelInfo = modelInfo;
+        this.ui.setSelectedModelOption(modelInfo.id);
+        this.ui.populateActiveModelMenu(this.availableModels, modelInfo.id);
 
         if (modelInfo.runtime === 'backend') {
             this.currentModel = null;
             this.modelManager.clearCurrentModel();
             this.ui.updateModelName(modelInfo.name);
+            this.ui.updateModelDetails(modelInfo);
+            this.ui.updateWebcamAvailability(modelInfo);
             return;
         }
 
         await this.modelManager.loadModel(modelInfo.modelType);
         this.currentModel = this.modelManager.getCurrentModel();
-    }
-
-    async toggleWebcam() {
-        if (this.webcamActive) {
-            this.stopWebcam();
-        } else {
-            await this.startWebcam();
-        }
+        this.ui.updateModelName(modelInfo.name);
+        this.ui.updateModelDetails(modelInfo);
+        this.ui.updateWebcamAvailability(modelInfo);
     }
 
     async startWebcam() {
@@ -206,13 +294,19 @@ class ImageClassifier {
 
         try {
             this.webcamActive = true;
+            this.lastWebcamInferenceAt = 0;
+            this.ui.updateWebcamControls(this.currentModelInfo, true);
+            this.ui.showActiveModel(this.currentModelInfo.name, true);
+            this.ui.hideEmptyPreview();
             this.ui.clearDetections();
             const video = requireElementById('webcam-video');
             const previewImage = requireElementById('preview-image');
 
-            this.webcamStream = await navigator.mediaDevices.getUserMedia({
-                video: { width: 640, height: 480 }
-            });
+            video.muted = true;
+            video.autoplay = true;
+            video.playsInline = true;
+
+            this.webcamStream = await this.requestWebcamStream();
 
             if (!this.isCurrentRun(runId)) {
                 this.webcamStream.getTracks().forEach(track => track.stop());
@@ -224,24 +318,112 @@ class ImageClassifier {
             video.style.display = 'block';
             previewImage.style.display = 'none';
 
-            video.onloadedmetadata = () => {
-                video.play();
-                this.processWebcamFrames(video, runId);
-            };
+            await this.waitForVideoMetadata(video);
+            await video.play();
 
-            requireElementById('webcam-toggle').textContent = 'Detener Webcam';
+            if (!this.isCurrentRun(runId)) return;
+
+            this.processWebcamFrames(video, runId);
         } catch (error) {
             if (!this.isCurrentRun(runId)) return;
 
             console.error('Error accediendo a webcam:', error);
+            this.stopWebcamTracks();
             this.ui.showError(this.getWebcamErrorMessage(error));
             this.webcamActive = false;
             this.processingFrame = false;
+            this.ui.updateWebcamControls(this.currentModelInfo, false);
         }
+    }
+
+    async requestWebcamStream() {
+        try {
+            return await navigator.mediaDevices.getUserMedia({
+                audio: false,
+                video: this.getWebcamVideoConstraints()
+            });
+        } catch (error) {
+            if (error.name === 'NotAllowedError' || error.name === 'SecurityError') {
+                throw error;
+            }
+
+            return await navigator.mediaDevices.getUserMedia({
+                audio: false,
+                video: true
+            });
+        }
+    }
+
+    getWebcamVideoConstraints() {
+        if (this.modelManager.getCurrentModelType() === 'handpose') {
+            return {
+                width: { ideal: 480 },
+                height: { ideal: 360 },
+                facingMode: { ideal: 'environment' }
+            };
+        }
+
+        return {
+            width: { ideal: 640 },
+            height: { ideal: 480 },
+            facingMode: { ideal: 'environment' }
+        };
+    }
+
+    getWebcamInferenceInterval() {
+        const modelType = this.modelManager.getCurrentModelType();
+
+        if (modelType === 'handpose') return 220;
+        if (modelType === 'body-pix') return 260;
+        if (modelType === 'mobilenet') return 180;
+
+        return 80;
+    }
+
+    waitForVideoMetadata(video) {
+        if (video.readyState >= HTMLMediaElement.HAVE_METADATA && video.videoWidth && video.videoHeight) {
+            return Promise.resolve();
+        }
+
+        return new Promise((resolve, reject) => {
+            const timeoutId = setTimeout(() => {
+                cleanup();
+                reject(new Error('La camara no entrego video a tiempo.'));
+            }, 8000);
+
+            const cleanup = () => {
+                clearTimeout(timeoutId);
+                video.removeEventListener('loadedmetadata', handleLoadedMetadata);
+                video.removeEventListener('error', handleError);
+            };
+
+            const handleLoadedMetadata = () => {
+                cleanup();
+                resolve();
+            };
+
+            const handleError = () => {
+                cleanup();
+                reject(new Error('El navegador no pudo preparar el video de la camara.'));
+            };
+
+            video.addEventListener('loadedmetadata', handleLoadedMetadata, { once: true });
+            video.addEventListener('error', handleError, { once: true });
+        });
     }
 
     async processWebcamFrames(video, runId) {
         if (!this.webcamActive || this.processingFrame || !this.isCurrentRun(runId)) return;
+
+        const now = performance.now();
+        const minimumInterval = this.getWebcamInferenceInterval();
+
+        if (now - this.lastWebcamInferenceAt < minimumInterval) {
+            requestAnimationFrame(() => this.processWebcamFrames(video, runId));
+            return;
+        }
+
+        this.lastWebcamInferenceAt = now;
 
         this.processingFrame = true;
 
@@ -258,6 +440,7 @@ class ImageClassifier {
             this.ui.displayResults(normalizedPredictions, this.currentModelInfo.name);
             this.ui.updateStats(normalizedPredictions, processingTime);
             this.ui.renderDetections(normalizedPredictions, video, this.modelManager.getCurrentModelType());
+            this.ui.showActiveModel(this.currentModelInfo.name, false);
         } catch (error) {
             if (!this.isCurrentRun(runId)) return;
 
@@ -279,25 +462,38 @@ class ImageClassifier {
             this.nextRunId();
         }
 
-        if (this.webcamStream) {
-            this.webcamStream.getTracks().forEach(track => track.stop());
-            this.webcamStream = null;
-        }
+        this.stopWebcamTracks();
 
         const video = requireElementById('webcam-video');
         const previewImage = requireElementById('preview-image');
         
         video.style.display = 'none';
-        previewImage.style.display = 'block';
+        previewImage.style.display = this.currentImageFile ? 'block' : 'none';
         
         this.webcamActive = false;
         this.processingFrame = false;
+        this.lastWebcamInferenceAt = 0;
         this.ui.clearDetections();
-        requireElementById('webcam-toggle').textContent = 'Usar Webcam';
+        if (this.currentImageFile) {
+            this.ui.hideEmptyPreview();
+            this.ui.showActiveModel(this.currentModelInfo.name, false);
+        } else {
+            this.ui.showEmptyPreview();
+            this.ui.hideActiveModel();
+        }
+        this.ui.updateWebcamControls(this.currentModelInfo, false);
+    }
+
+    stopWebcamTracks() {
+        if (!this.webcamStream) return;
+
+        this.webcamStream.getTracks().forEach(track => track.stop());
+        this.webcamStream = null;
     }
 
     handleDragOver(event) {
         event.preventDefault();
+        if (this.uploadedImageActive) return;
         event.currentTarget.classList.add('drag-over');
     }
 
@@ -308,15 +504,30 @@ class ImageClassifier {
     handleDrop(event) {
         event.preventDefault();
         event.currentTarget.classList.remove('drag-over');
+
+        if (this.uploadedImageActive) return;
         
         const files = event.dataTransfer.files;
         if (files.length > 0) {
             const imageFile = files[0];
             if (!this.validateSelectedImage(imageFile)) return;
 
+            this.uploadedImageActive = true;
+            this.currentImageFile = imageFile;
+            this.ui.updateSelectedFileName(imageFile.name);
             this.stopWebcam();
             this.classifyImage(imageFile);
         }
+    }
+
+    clearUploadedImage() {
+        const imageInput = requireElementById('image-input');
+
+        this.uploadedImageActive = false;
+        this.currentImageFile = null;
+        imageInput.value = '';
+        this.nextRunId();
+        this.ui.clearUploadedImageState();
     }
 
     validateSelectedImage(file) {
@@ -332,6 +543,301 @@ class ImageClassifier {
     normalizePredictions(predictions) {
         if (Array.isArray(predictions)) return predictions;
         return predictions.predictions || [];
+    }
+
+    normalizeImageClassifications(classifications, sourceElement) {
+        const sourceSize = this.getSourceSize(sourceElement);
+        const imageBbox = this.fullImageBbox(sourceSize);
+
+        return classifications.map((classification, index) => ({
+            ...classification,
+            type: 'image_classification',
+            bbox: index === 0 ? imageBbox : null,
+            details: index === 0
+                ? 'La clasificacion aplica a la imagen completa; este modelo no localiza objetos individuales.'
+                : undefined
+        }));
+    }
+
+    normalizeObjectDetections(detections, sourceElement) {
+        const sourceSize = this.getSourceSize(sourceElement);
+
+        return detections
+            .map((detection) => {
+                const bbox = this.clampValidBbox(detection.bbox, sourceSize);
+
+                return {
+                    ...detection,
+                    type: 'object_detection',
+                    bbox
+                };
+            })
+            .filter((detection) => this.isValidBbox(detection.bbox));
+    }
+
+    normalizeFaces(faces, sourceElement) {
+        const sourceSize = this.getSourceSize(sourceElement);
+
+        return faces.map((face, index) => {
+            const topLeft = this.toPoint(face.topLeft);
+            const bottomRight = this.toPoint(face.bottomRight);
+            const confidence = Array.isArray(face.probability) ? face.probability[0] : face.probability;
+            const rawBbox = [
+                topLeft.x,
+                topLeft.y,
+                bottomRight.x - topLeft.x,
+                bottomRight.y - topLeft.y
+            ];
+
+            return {
+                label: `rostro ${index + 1}`,
+                confidence: confidence ?? 0,
+                type: 'face_detection',
+                bbox: this.refineFaceBbox(face, rawBbox, sourceSize)
+            };
+        });
+    }
+
+    refineFaceBbox(face, rawBbox, sourceSize) {
+        const landmarkBbox = this.bboxFromLandmarks(face.landmarks, rawBbox);
+        const bbox = landmarkBbox || this.tightenBbox(rawBbox, {
+            offsetX: 0.08,
+            offsetY: 0.03,
+            scaleX: 0.84,
+            scaleY: 0.84
+        });
+
+        return this.clampBbox(bbox, sourceSize);
+    }
+
+    bboxFromLandmarks(landmarks, rawBbox) {
+        if (!Array.isArray(landmarks) || landmarks.length < 2) return null;
+
+        const points = landmarks.map((landmark) => this.toPoint(landmark));
+        const xValues = points.map((point) => point.x);
+        const yValues = points.map((point) => point.y);
+        const minX = Math.min(...xValues);
+        const maxX = Math.max(...xValues);
+        const minY = Math.min(...yValues);
+        const maxY = Math.max(...yValues);
+        const landmarkWidth = Math.max(maxX - minX, rawBbox[2] * 0.45);
+        const landmarkHeight = Math.max(maxY - minY, rawBbox[3] * 0.35);
+        const centerX = (minX + maxX) / 2;
+        const centerY = (minY + maxY) / 2;
+        const width = Math.min(rawBbox[2] * 0.9, landmarkWidth * 1.55);
+        const height = Math.min(rawBbox[3] * 0.88, landmarkHeight * 2.15);
+
+        return [
+            centerX - width / 2,
+            centerY - height * 0.58,
+            width,
+            height
+        ];
+    }
+
+    tightenBbox(bbox, options) {
+        const [x, y, width, height] = bbox;
+        const nextWidth = width * options.scaleX;
+        const nextHeight = height * options.scaleY;
+
+        return [
+            x + width * options.offsetX,
+            y + height * options.offsetY,
+            nextWidth,
+            nextHeight
+        ];
+    }
+
+    clampBbox(bbox, sourceSize) {
+        const [x, y, width, height] = bbox;
+        const maxWidth = sourceSize.width || x + width;
+        const maxHeight = sourceSize.height || y + height;
+        const nextX = Math.max(0, Math.min(x, maxWidth));
+        const nextY = Math.max(0, Math.min(y, maxHeight));
+        const nextWidth = Math.max(0, Math.min(width, maxWidth - nextX));
+        const nextHeight = Math.max(0, Math.min(height, maxHeight - nextY));
+
+        return [nextX, nextY, nextWidth, nextHeight];
+    }
+
+    clampValidBbox(bbox, sourceSize) {
+        if (!this.isValidBbox(bbox)) return null;
+
+        const clampedBbox = this.clampBbox(bbox, sourceSize);
+        return this.isValidBbox(clampedBbox) ? clampedBbox : null;
+    }
+
+    normalizeHands(hands, sourceElement) {
+        const sourceSize = this.getSourceSize(sourceElement);
+
+        return hands.map((hand, index) => ({
+            label: `mano ${index + 1}`,
+            confidence: hand.handInViewConfidence ?? 0,
+            type: 'hand_landmarks',
+            bbox: this.refineHandBbox(hand, sourceSize),
+            details: `${hand.landmarks?.length || 0} puntos clave`
+        }));
+    }
+
+    refineHandBbox(hand, sourceSize) {
+        const boxBbox = this.bboxFromBox(hand.boundingBox);
+        const landmarkBbox = this.bboxFromHandLandmarks(hand.landmarks);
+        const bbox = this.isValidBbox(landmarkBbox)
+            ? landmarkBbox
+            : this.getReasonableFallbackBbox(boxBbox, sourceSize);
+
+        if (!this.isValidBbox(bbox)) return null;
+
+        return this.clampBbox(this.expandBbox(bbox, 0.06, 0.08), sourceSize);
+    }
+
+    bboxFromHandLandmarks(landmarks) {
+        if (!Array.isArray(landmarks) || landmarks.length === 0) return null;
+
+        const points = landmarks.map((landmark) => this.toPoint(landmark));
+        const xValues = points.map((point) => point.x);
+        const yValues = points.map((point) => point.y);
+        const minX = Math.min(...xValues);
+        const maxX = Math.max(...xValues);
+        const minY = Math.min(...yValues);
+        const maxY = Math.max(...yValues);
+
+        return [minX, minY, maxX - minX, maxY - minY];
+    }
+
+    expandBbox(bbox, horizontalRatio, verticalRatio) {
+        const [x, y, width, height] = bbox;
+        const extraX = width * horizontalRatio;
+        const extraY = height * verticalRatio;
+
+        return [
+            x - extraX,
+            y - extraY,
+            width + extraX * 2,
+            height + extraY * 2
+        ];
+    }
+
+    getReasonableFallbackBbox(bbox, sourceSize) {
+        if (!this.isValidBbox(bbox)) return null;
+        if (!sourceSize.width || !sourceSize.height) return bbox;
+
+        const widthRatio = bbox[2] / sourceSize.width;
+        const heightRatio = bbox[3] / sourceSize.height;
+        const areaRatio = (bbox[2] * bbox[3]) / (sourceSize.width * sourceSize.height);
+
+        if (widthRatio > 0.45 || heightRatio > 0.55 || areaRatio > 0.22) {
+            return null;
+        }
+
+        return bbox;
+    }
+
+    fullImageBbox(sourceSize) {
+        if (!sourceSize.width || !sourceSize.height) return null;
+
+        return [0, 0, sourceSize.width, sourceSize.height];
+    }
+
+    normalizeBodySegmentation(segmentation, sourceElement) {
+        const totalPixels = segmentation.data?.length || 0;
+        const personPixels = totalPixels
+            ? segmentation.data.reduce((total, value) => total + (value ? 1 : 0), 0)
+            : 0;
+        const personRatio = totalPixels ? personPixels / totalPixels : 0;
+        const sourceSize = this.getSourceSize(sourceElement);
+        const segmentationBbox = this.bboxFromSegmentation(segmentation, sourceSize);
+
+        if (!personPixels) return [];
+
+        return [
+            {
+                label: 'persona segmentada',
+                confidence: Math.min(0.5 + personRatio, 0.99),
+                type: 'person_segmentation',
+                bbox: segmentationBbox,
+                details: `${(personRatio * 100).toFixed(1)}% de pixeles pertenecen a persona`
+            }
+        ];
+    }
+
+    bboxFromSegmentation(segmentation, sourceSize) {
+        if (!segmentation.data?.length) return null;
+
+        const maskWidth = segmentation.width || sourceSize.width;
+        const maskHeight = segmentation.height || sourceSize.height;
+        if (!maskWidth || !maskHeight) return null;
+
+        let minX = maskWidth;
+        let minY = maskHeight;
+        let maxX = -1;
+        let maxY = -1;
+
+        segmentation.data.forEach((value, index) => {
+            if (!value) return;
+
+            const x = index % maskWidth;
+            const y = Math.floor(index / maskWidth);
+            minX = Math.min(minX, x);
+            minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x);
+            maxY = Math.max(maxY, y);
+        });
+
+        if (maxX < minX || maxY < minY) return null;
+
+        const scaleX = sourceSize.width && maskWidth ? sourceSize.width / maskWidth : 1;
+        const scaleY = sourceSize.height && maskHeight ? sourceSize.height / maskHeight : 1;
+        const bbox = [
+            minX * scaleX,
+            minY * scaleY,
+            (maxX - minX + 1) * scaleX,
+            (maxY - minY + 1) * scaleY
+        ];
+
+        return this.clampBbox(this.expandBbox(bbox, 0.02, 0.03), sourceSize);
+    }
+
+    bboxFromBox(box) {
+        if (!box) return null;
+
+        const topLeft = this.toPoint(box.topLeft);
+        const bottomRight = this.toPoint(box.bottomRight);
+
+        return [
+            topLeft.x,
+            topLeft.y,
+            bottomRight.x - topLeft.x,
+            bottomRight.y - topLeft.y
+        ];
+    }
+
+    isValidBbox(bbox) {
+        return Array.isArray(bbox)
+            && bbox.length === 4
+            && bbox.every(Number.isFinite)
+            && bbox[2] > 0
+            && bbox[3] > 0;
+    }
+
+    toPoint(point) {
+        if (Array.isArray(point)) {
+            return { x: point[0], y: point[1] };
+        }
+
+        return { x: point?.x || 0, y: point?.y || 0 };
+    }
+
+    getSourceSize(sourceElement) {
+        if (sourceElement instanceof HTMLVideoElement) {
+            return { width: sourceElement.videoWidth, height: sourceElement.videoHeight };
+        }
+
+        if (sourceElement instanceof HTMLImageElement) {
+            return { width: sourceElement.naturalWidth, height: sourceElement.naturalHeight };
+        }
+
+        return { width: 0, height: 0 };
     }
 
     nextRunId() {
@@ -362,6 +868,18 @@ class ImageClassifier {
 
         if (error.name === 'NotReadableError') {
             return 'La camara esta ocupada o no se puede leer desde el navegador.';
+        }
+
+        if (error.name === 'OverconstrainedError') {
+            return 'La camara no soporta la configuracion solicitada.';
+        }
+
+        if (error.name === 'SecurityError') {
+            return 'La webcam requiere abrir la app desde localhost o HTTPS.';
+        }
+
+        if (error.name === 'AbortError') {
+            return 'El navegador interrumpio el acceso a la camara. Intenta de nuevo.';
         }
 
         return error.message || 'No se puede acceder a la webcam.';

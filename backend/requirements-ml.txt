@@ -1,0 +1,22 @@
+# Dependencias opcionales para entrenamiento de modelos propios.
+# No son necesarias para ejecutar el backend actual ni el frontend.
+
+# Comun PyTorch / torchvision
+torch
+torchvision
+
+# YOLOv8 / YOLOv11
+ultralytics
+
+# EfficientDet
+effdet
+timm
+
+# DETR / RT-DETR
+transformers
+accelerate
+
+# Utilidades de datos y metricas
+opencv-python
+numpy
+pycocotools

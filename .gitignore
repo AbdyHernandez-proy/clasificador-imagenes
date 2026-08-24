@@ -1,6 +1,7 @@
 # Dependencias
 node_modules/
 .venv/
+.venv-ml/
 venv/
 __pycache__/
 *.py[cod]
@@ -9,6 +10,15 @@ __pycache__/
 dist/
 build/
 .vite/
+
+# Datos y artefactos ML locales
+ml/datasets/downloads/
+ml/datasets/raw/
+ml/datasets/processed/
+ml/models/
+ml/runs/
+!ml/datasets/registry.json
+!ml/registry.json
 
 # Editor
 .vscode/
@@ -32,3 +42,19 @@ build/
 # OS
 Thumbs.db
 .DS_Store
+
+# Evaluaciones locales generadas
+ml/evaluation/voc-validation-*/
+ml/evaluation/internet-smoke-*/
+ml/evaluation/__pycache__/
+ml/evaluation/*.md
+!ml/evaluation/validate_torchvision_detectors.py
+
+# Pesos descargados en raiz por pruebas locales
+yolo*.pt
+
+# Caches locales de datasets
+ml/datasets/**/.cache/
+
+# Exportaciones temporales para Colab
+exports/

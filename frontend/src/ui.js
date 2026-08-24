@@ -4,11 +4,18 @@ export class ClassifierUI {
     constructor() {
         this.resultsContainer = requireElementById('results-container');
         this.loadingSpinner = requireElementById('loading-spinner');
+        this.previewEmptyState = requireElementById('preview-empty-state');
         this.previewImage = requireElementById('preview-image');
         this.modelStatus = requireElementById('model-status');
+        this.activeModelOverlay = requireElementById('active-model-overlay');
+        this.activeModelTrigger = requireElementById('active-model-trigger');
+        this.activeModelMenu = requireElementById('active-model-menu');
+        this.activeModelStatus = requireElementById('active-model-status');
+        this.activeModelName = requireElementById('active-model-name');
         this.confidenceValue = requireElementById('confidence-value');
         this.timeValue = requireElementById('time-value');
         this.imageContainer = requireSelector('.image-container');
+        this.uploadArea = requireSelector('.upload-area');
         this.canvasContainer = requireElementById('canvas-container');
         this.detectionCanvas = requireElementById('detection-canvas');
     }
@@ -20,6 +27,40 @@ export class ClassifierUI {
 
     hideLoading() {
         this.loadingSpinner.style.display = 'none';
+    }
+
+    showActiveModel(modelName, isRunning = false) {
+        this.activeModelStatus.textContent = isRunning ? 'Ejecutando modelo' : 'Modelo activo';
+        this.activeModelName.textContent = modelName || 'Modelo seleccionado';
+        this.activeModelOverlay.hidden = false;
+        this.activeModelOverlay.classList.toggle('is-running', isRunning);
+    }
+
+    hideActiveModel() {
+        this.activeModelOverlay.hidden = true;
+        this.activeModelOverlay.classList.remove('is-running');
+        this.closeActiveModelMenu();
+    }
+
+    toggleActiveModelMenu() {
+        this.setActiveModelMenuOpen(this.activeModelMenu.hidden);
+    }
+
+    closeActiveModelMenu() {
+        this.setActiveModelMenuOpen(false);
+    }
+
+    setActiveModelMenuOpen(isOpen) {
+        this.activeModelMenu.hidden = !isOpen;
+        this.activeModelTrigger.setAttribute('aria-expanded', String(isOpen));
+    }
+
+    showEmptyPreview() {
+        this.previewEmptyState.hidden = false;
+    }
+
+    hideEmptyPreview() {
+        this.previewEmptyState.hidden = true;
     }
 
     displayResults(predictions, modelType) {
@@ -62,6 +103,14 @@ export class ClassifierUI {
             header.append(rank, label);
             bar.append(progress);
             item.append(header, bar, probability);
+
+            if (prediction.details) {
+                const details = document.createElement('p');
+                details.className = 'result-details';
+                details.textContent = prediction.details;
+                item.append(details);
+            }
+
             fragment.append(item);
         });
 
@@ -78,6 +127,8 @@ export class ClassifierUI {
     }
 
     showImage(imageElement) {
+        this.hideEmptyPreview();
+
         if (imageElement instanceof HTMLImageElement) {
             this.previewImage.src = imageElement.src;
             this.previewImage.style.display = 'block';
@@ -87,8 +138,8 @@ export class ClassifierUI {
         }
     }
 
-    renderDetections(predictions, sourceElement, modelType) {
-        if (modelType !== 'coco-ssd' || !Array.isArray(predictions) || predictions.length === 0) {
+    renderDetections(predictions, sourceElement) {
+        if (!Array.isArray(predictions) || predictions.length === 0 || !predictions.some((prediction) => prediction.bbox)) {
             this.clearDetections();
             return;
         }
@@ -126,7 +177,7 @@ export class ClassifierUI {
             const boxY = offsetY + y * scale;
             const boxWidth = width * scale;
             const boxHeight = height * scale;
-            const label = `${prediction.class} ${(prediction.score * 100).toFixed(1)}%`;
+            const label = `${this.getPredictionLabel(prediction)} ${(this.getPredictionConfidence(prediction) * 100).toFixed(1)}%`;
             const labelWidth = ctx.measureText(label).width + 8;
             const labelY = Math.max(0, boxY - 20);
 
@@ -155,17 +206,133 @@ export class ClassifierUI {
         modelSelect.replaceChildren();
 
         models.forEach((model) => {
-            const option = document.createElement('option');
-            option.value = model.id;
-            option.textContent = model.name;
-            option.selected = model.id === selectedModelId;
+            const option = document.createElement('button');
+            const isSelected = model.id === selectedModelId;
+
+            option.type = 'button';
+            option.className = 'model-option';
+            option.dataset.modelId = model.id;
+            option.setAttribute('role', 'radio');
+            option.setAttribute('aria-checked', String(isSelected));
+            option.tabIndex = isSelected ? 0 : -1;
+
+            const header = document.createElement('span');
+            header.className = 'model-option-header';
+
+            const name = document.createElement('span');
+            name.className = 'model-option-name';
+            name.textContent = model.name;
+
+            const usage = document.createElement('span');
+            usage.className = 'model-option-usage';
+            usage.textContent = model.usageLabel || model.task || 'Modelo';
+
+            const efficiency = document.createElement('span');
+            efficiency.className = `model-option-efficiency efficiency-${this.getEfficiencyClass(model.efficiency)}`;
+            efficiency.textContent = model.efficiency || 'Medio';
+
+            const description = document.createElement('span');
+            description.className = 'model-option-description';
+            description.textContent = model.description || model.task || 'Modelo disponible';
+
+            header.append(name, usage);
+            option.append(header, efficiency, description);
             modelSelect.append(option);
+        });
+
+        this.setSelectedModelOption(selectedModelId);
+    }
+
+    setSelectedModelOption(modelId) {
+        const modelSelect = requireElementById('model-select');
+        const options = modelSelect.querySelectorAll('.model-option');
+
+        options.forEach((option) => {
+            const isSelected = option.dataset.modelId === modelId;
+            option.classList.toggle('is-selected', isSelected);
+            option.setAttribute('aria-checked', String(isSelected));
+            option.tabIndex = isSelected ? 0 : -1;
+        });
+    }
+
+    populateActiveModelMenu(models, selectedModelId) {
+        const options = models.filter((model) => model.id !== selectedModelId);
+        this.activeModelMenu.replaceChildren();
+
+        if (options.length === 0) {
+            const empty = document.createElement('span');
+            empty.className = 'active-model-menu-empty';
+            empty.textContent = 'No hay otros modelos disponibles';
+            this.activeModelMenu.append(empty);
+            return;
+        }
+
+        options.forEach((model) => {
+            const option = document.createElement('button');
+            option.type = 'button';
+            option.className = 'active-model-menu-item';
+            option.dataset.modelId = model.id;
+            option.setAttribute('role', 'option');
+
+            const name = document.createElement('strong');
+            name.textContent = model.name;
+
+            const meta = document.createElement('span');
+            meta.textContent = `${model.usageLabel || model.task || 'Modelo'} · ${model.efficiency || 'Medio'}`;
+
+            option.append(name, meta);
+            this.activeModelMenu.append(option);
         });
     }
 
     updateModelName(name) {
         const modelName = requireElementById('model-name');
         modelName.textContent = name;
+    }
+
+    updateModelDetails(model) {
+        requireElementById('model-task').textContent = model.task || 'Modelo';
+        requireElementById('model-algorithm').textContent = model.algorithm || model.runtime || 'Algoritmo no especificado';
+        requireElementById('model-efficiency').textContent = `Eficiencia: ${model.efficiency || 'Medio'}`;
+        requireElementById('model-efficiency').className = `model-efficiency efficiency-${this.getEfficiencyClass(model.efficiency)}`;
+        requireElementById('model-description').textContent = model.description || 'Sin descripcion disponible.';
+    }
+
+    getEfficiencyClass(efficiency) {
+        const normalized = (efficiency || 'medio').toLowerCase();
+
+        if (normalized === 'rapido') return 'fast';
+        if (normalized === 'lento') return 'slow';
+
+        return 'medium';
+    }
+
+    updateWebcamAvailability(model) {
+        this.updateWebcamControls(model, false);
+    }
+
+    updateWebcamControls(model, isActive = false) {
+        const webcamStart = requireElementById('webcam-start');
+        const webcamStop = requireElementById('webcam-stop');
+        const supportsWebcam = Boolean(model.supportsWebcam);
+
+        webcamStart.disabled = !supportsWebcam || isActive;
+        webcamStop.disabled = !supportsWebcam || !isActive;
+        webcamStart.title = supportsWebcam
+            ? 'Iniciar captura de camara'
+            : 'La webcam solo esta disponible con modelos del navegador';
+        webcamStop.title = supportsWebcam
+            ? 'Finalizar captura de camara'
+            : 'La webcam solo esta disponible con modelos del navegador';
+    }
+
+    updateSelectedFileName(fileName) {
+        const imageInput = requireElementById('image-input');
+
+        requireElementById('selected-file-name').textContent = fileName || 'Ningun archivo seleccionado';
+        this.uploadArea.classList.toggle('has-file', Boolean(fileName));
+        requireElementById('clear-image-button').hidden = !fileName;
+        imageInput.disabled = Boolean(fileName);
     }
 
     updateModelStatus(status) {
@@ -177,7 +344,16 @@ export class ClassifierUI {
         this.confidenceValue.textContent = '-';
         this.timeValue.textContent = '-';
         this.previewImage.src = '';
+        this.previewImage.style.display = 'none';
         this.clearDetections();
+        this.hideActiveModel();
+        this.showEmptyPreview();
+    }
+
+    clearUploadedImageState() {
+        this.hideLoading();
+        this.updateSelectedFileName('');
+        this.clearResults();
     }
 
     showError(message) {
