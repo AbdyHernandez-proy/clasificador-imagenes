@@ -1,3 +1,13 @@
+export const ALLOWED_IMAGE_TYPES = [
+    'image/jpeg',
+    'image/png',
+    'image/webp',
+    'image/gif',
+    'image/bmp'
+];
+
+export const ALLOWED_IMAGE_EXTENSIONS = ['JPG', 'JPEG', 'PNG', 'WEBP', 'GIF', 'BMP'];
+
 export class ImageProcessor {
     constructor() {
         this.maxWidth = 640;
@@ -10,8 +20,8 @@ export class ImageProcessor {
             throw new Error('No se selecciono ningun archivo.');
         }
 
-        if (!file.type || !file.type.startsWith('image/')) {
-            throw new Error('El archivo seleccionado no es una imagen valida.');
+        if (!file.type || !ALLOWED_IMAGE_TYPES.includes(file.type)) {
+            throw new Error(`Formato no permitido. Usa: ${ALLOWED_IMAGE_EXTENSIONS.join(', ')}.`);
         }
 
         if (file.size > this.maxFileSize) {
@@ -28,7 +38,6 @@ export class ImageProcessor {
                 const img = new Image();
                 img.onload = () => {
                     try {
-                        // Redimensionar si es necesario
                         const resized = this.resizeImage(img);
                         resolve(resized);
                     } catch (error) {
@@ -48,7 +57,6 @@ export class ImageProcessor {
         let width = img.width;
         let height = img.height;
 
-        // Mantener aspecto ratio
         if (width > height) {
             if (width > this.maxWidth) {
                 height = Math.round((height * this.maxWidth) / width);

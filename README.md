@@ -20,7 +20,7 @@ La administracion de datasets, entrenamiento y modelos se maneja desde carpetas 
 Clasificador_Imagenes/
 |-- frontend/              # Interfaz web Vite/TensorFlow.js actual
 |-- backend/               # API interna FastAPI
-|-- ml/                    # Datasets, modelos, entrenamiento e inferencia
+|-- ml/                    # Registro, datasets y modelos propios
 |-- docs/                  # Documentacion tecnica y roadmap
 |-- .github/workflows/     # Deploy del frontend a GitHub Pages
 |-- SETUP.md
@@ -42,6 +42,16 @@ Responsabilidades actuales:
 - Dibujar cajas de deteccion para COCO-SSD.
 - Mantener GitHub Pages funcionando para pruebas remotas con modelos del navegador.
 - Usar fallback automatico a modelos del navegador si el backend no esta disponible.
+
+Formatos de imagen permitidos:
+
+- JPG / JPEG
+- PNG
+- WEBP
+- GIF
+- BMP
+
+Tamano maximo por imagen: 10 MB.
 
 Comandos:
 
@@ -90,8 +100,6 @@ Responsabilidades:
 
 - Guardar datasets.
 - Guardar modelos entrenados.
-- Mantener scripts de entrenamiento.
-- Mantener scripts de inferencia.
 - Registrar modelos disponibles en `ml/registry.json`.
 
 Estructura:
@@ -100,10 +108,10 @@ Estructura:
 ml/
 |-- datasets/
 |-- models/
-|-- training/
-|-- inference/
 `-- registry.json
 ```
+
+Los scripts de entrenamiento e inferencia propios se agregaran cuando se construya esa etapa del roadmap. Mientras no existan scripts reales, no se versionan carpetas vacias para evitar ruido.
 
 ## Registro de modelos
 
@@ -135,6 +143,18 @@ Modelo preentrenado de TensorFlow.js para clasificacion general de imagenes. Cor
 ### COCO-SSD (Navegador)
 
 Modelo preentrenado de TensorFlow.js para deteccion de objetos. Corre directamente en el navegador, soporta imagenes cargadas y webcam, y permite dibujar cajas de deteccion sobre la imagen.
+
+### BlazeFace (Navegador)
+
+Modelo ligero para deteccion de rostros. Devuelve rostros detectados con confianza y caja aproximada.
+
+### HandPose (Navegador)
+
+Modelo para deteccion de manos. Devuelve una caja aproximada por mano y el conteo de puntos clave detectados.
+
+### BodyPix (Navegador)
+
+Modelo de segmentacion de persona. Indica si encuentra una persona y calcula la proporcion aproximada de pixeles segmentados.
 
 ### Perfil visual backend
 

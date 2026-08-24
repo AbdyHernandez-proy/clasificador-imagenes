@@ -16,35 +16,68 @@
         <main class="main-content">
             <div class="control-panel">
                 <div class="model-selector">
-                    <label for="model-select">Modelo:</label>
-                    <select id="model-select">
-                        <option value="browser:mobilenet">MobileNet (Navegador)</option>
-                        <option value="browser:coco-ssd">COCO-SSD (Navegador)</option>
-                    </select>
+                    <span class="model-selector-label">Modelo:</span>
+                    <div id="model-select" class="model-options" role="radiogroup" aria-label="Modelos disponibles"></div>
                 </div>
 
-                <div class="input-section">
-                    <div class="upload-area">
-                        <input type="file" id="image-input" accept="image/*">
-                        <label for="image-input" class="upload-label">
-                            <span class="upload-icon">Subir</span>
-                            <span class="upload-text">Sube una imagen o captura con webcam</span>
-                        </label>
+                <div class="action-panel">
+                    <div class="model-action-column">
+                        <div id="model-details" class="model-details">
+                            <div class="model-detail-badges">
+                                <span id="model-task" class="model-task">Clasificacion de imagenes</span>
+                                <span id="model-algorithm" class="model-algorithm">CNN MobileNet</span>
+                                <span id="model-efficiency" class="model-efficiency">Eficiencia: Rapido</span>
+                            </div>
+                            <p id="model-description" class="model-description-card">Clasifica la imagen completa con etiquetas generales.</p>
+                        </div>
+
+                        <div class="webcam-section">
+                            <button id="webcam-start" class="btn btn-primary">
+                                <span class="btn-icon">Camara</span> Iniciar captura
+                            </button>
+                            <button id="webcam-stop" class="btn btn-secondary" disabled>
+                                <span class="btn-icon">Detener</span> Finalizar captura
+                            </button>
+                        </div>
                     </div>
-                </div>
 
-                <div class="webcam-section">
-                    <button id="webcam-toggle" class="btn btn-primary">
-                        <span class="btn-icon">Camara</span> Usar Webcam
-                    </button>
+                    <div class="input-section">
+                        <div class="upload-area">
+                            <input type="file" id="image-input" accept=".jpg,.jpeg,.png,.webp,.gif,.bmp,image/jpeg,image/png,image/webp,image/gif,image/bmp">
+                            <label for="image-input" class="upload-label">
+                                <span class="upload-empty-state">
+                                    <span class="upload-icon">Subir</span>
+                                    <span class="upload-text">Sube o arrastra una imagen</span>
+                                    <span class="upload-formats">Formatos permitidos: JPG, JPEG, PNG, WEBP, GIF y BMP. Maximo 10 MB.</span>
+                                </span>
+                                <span class="upload-file-state">
+                                    <span class="upload-file-label">Imagen cargada</span>
+                                    <span id="selected-file-name" class="selected-file-name">Ningun archivo seleccionado</span>
+                                </span>
+                            </label>
+                            <button id="clear-image-button" class="clear-image-button" type="button" hidden>Limpiar imagen</button>
+                        </div>
+                    </div>
                 </div>
             </div>
 
             <div class="content-wrapper">
                 <div class="image-section">
+                    <div id="active-model-overlay" class="active-model-overlay" hidden>
+                        <button id="active-model-trigger" class="active-model-trigger" type="button" aria-haspopup="listbox" aria-expanded="false">
+                            <span id="active-model-status">Modelo activo</span>
+                            <strong id="active-model-name">MobileNet</strong>
+                            <span class="active-model-action">Cambiar</span>
+                        </button>
+                        <div id="active-model-menu" class="active-model-menu" role="listbox" aria-label="Cambiar modelo activo" hidden></div>
+                    </div>
                     <div class="image-container">
+                        <div id="preview-empty-state" class="preview-empty-state">
+                            <span class="preview-empty-title">Sin imagen para visualizar</span>
+                            <span class="preview-empty-text">Sube una imagen o inicia la camara para ver resultados aqui.</span>
+                        </div>
                         <img id="preview-image" src="" alt="Vista previa">
-                        <video id="webcam-video" style="display: none;"></video>
+                        <video id="webcam-video" autoplay muted playsinline style="display: none;"></video>
                     </div>
                     <div id="canvas-container" style="display: none;">
                         <canvas id="detection-canvas"></canvas>
