@@ -128,3 +128,20 @@ Todas las evaluaciones siguientes se ejecutaron sobre 250 imagenes del split `va
 3. Usar subconjuntos balanceados para pruebas cortas antes de entrenar VOC completo.
 4. Reentrenar Faster solo si cambiamos learning rate, estrategia de congelamiento o validacion por epoca.
 5. Mantener datasets descargados fuera del repositorio y regenerarlos cuando se necesite entrenar.
+
+## Recomendaciones siguientes
+
+1. Ejecutar primero `faster_voc_gpu_tuned` en Colab y conservar el `best_model.pt`, no necesariamente el ultimo `model.pt`.
+2. Revisar `validation_history.json` despues de cada corrida para confirmar si la mejora real ocurre antes de la ultima epoca.
+3. Entrenar RetinaNet con `retinanet_voc_gpu_tuned` solo despues de validar Faster, para comparar con la misma metodologia.
+4. Si el mAP no mejora, priorizar dataset/labels y umbrales de inferencia antes de aumentar epocas.
+5. Mantener datasets descargados fuera del repositorio y regenerarlos cuando se necesite entrenar.
+
+## Flujo implementado para proximos entrenamientos
+
+- El entrenador TorchVision ahora acepta learning rate, momentum, weight decay, scheduler StepLR y congelamiento temporal del backbone.
+- Faster R-CNN y RetinaNet pueden validar al cierre de cada epoca con `--validate-every-epoch`.
+- Se guarda `checkpoint_latest.pt` para reanudar y `checkpoint_best.pt` / `best_model.pt` cuando mejora la metrica configurada.
+- La metrica recomendada para elegir el mejor punto es `map50_95`, porque castiga cajas imprecisas y no solo detecciones faciles.
+- `early_stopping_patience` evita repetir entrenamientos largos cuando el modelo deja de mejorar.
+- `show-training-progress.ps1` muestra progreso, ultima validacion, mejor epoca y ruta del best checkpoint.

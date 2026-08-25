@@ -49,6 +49,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--resume", action="store_true", help="Reanuda desde checkpoint_latest.pt si existe.")
     parser.add_argument("--publish-partial", action="store_true", help="Publica model.pt aunque el objetivo de epocas no haya terminado.")
     parser.add_argument("--workers", type=int, default=0)
+    parser.add_argument("--lr", type=float, default=0.0025, help="Learning rate para entrenadores TorchVision.")
+    parser.add_argument("--momentum", type=float, default=0.9, help="Momentum SGD para entrenadores TorchVision.")
+    parser.add_argument("--weight-decay", type=float, default=0.0005, help="Weight decay para entrenadores TorchVision.")
+    parser.add_argument("--lr-step-size", type=int, default=0, help="Epocas entre pasos del scheduler StepLR. 0 desactiva scheduler.")
+    parser.add_argument("--lr-gamma", type=float, default=0.1, help="Factor de reduccion del scheduler StepLR.")
+    parser.add_argument("--freeze-backbone-epochs", type=int, default=0, help="Congela el backbone durante N epocas iniciales en TorchVision.")
+    parser.add_argument("--validate-every-epoch", action="store_true", help="Valida al cerrar cada epoca y guarda best_model.pt.")
+    parser.add_argument("--validation-limit", type=int, default=250, help="Imagenes de validacion por epoca. 0 usa todo el split val.")
+    parser.add_argument("--validation-confidence", type=float, default=-1.0, help="Umbral de validacion. -1 usa el del registro del modelo.")
+    parser.add_argument("--validation-max-detections", type=int, default=0, help="Max detecciones por imagen. 0 usa el registro del modelo.")
+    parser.add_argument("--best-metric", default="map50_95", choices=["map50_95", "map50", "precision_at_50", "recall_at_50"], help="Metrica usada para elegir best_model.pt.")
+    parser.add_argument("--min-delta", type=float, default=0.0001, help="Mejora minima para reemplazar best checkpoint.")
+    parser.add_argument("--early-stopping-patience", type=int, default=0, help="Epocas sin mejora antes de detener. 0 desactiva early stopping.")
     parser.add_argument("--allow-efficientdet", action="store_true", help="Reserva para trainer experimental futuro.")
     return parser.parse_args()
 
@@ -305,6 +318,8 @@ def train_torchvision_detector(
     from torchvision.models import ResNet50_Weights
     from torchvision.models.detection import fasterrcnn_resnet50_fpn, retinanet_resnet50_fpn
 
+    from ml.training.torchvision_validation import evaluate_torchvision_model, select_validation_samples
+
     classes = get_dataset_classes(dataset)
     train_split = dataset.get("splits", {}).get("train")
     if not train_split:
@@ -317,6 +332,15 @@ def train_torchvision_detector(
 
     if not samples:
         raise ValueError("No hay muestras para entrenar.")
+
+    validation_samples = []
+    if args.validate_every_epoch:
+        validation_split = dataset.get("splits", {}).get("val") or dataset.get("splits", {}).get("validation")
+        if validation_split:
+            validation_samples = select_validation_samples(build_yolo_index(dataset_root, validation_split), args.validation_limit)
+            print(f"{model_key} validacion configurada: {len(validation_samples)} muestras.", flush=True)
+        else:
+            print(f"{model_key} sin split de validacion; se omite validacion por epoca.", flush=True)
 
     print(f"{model_key} indice listo: {len(samples)} muestras.", flush=True)
     device = torch.device("cuda:0" if resolve_device(args.device) != "cpu" and torch.cuda.is_available() else "cpu")
@@ -342,51 +366,79 @@ def train_torchvision_detector(
         )
         model_id = "custom-retinanet-detector"
 
-    print(f"{model_id} moviendo modelo a {device}...", flush=True)
-    model.to(device)
-    model.train()
-    print(f"{model_id} preparando optimizador...", flush=True)
-    optimizer = torch.optim.SGD(
-        [parameter for parameter in model.parameters() if parameter.requires_grad],
-        lr=0.0025,
-        momentum=0.9,
-        weight_decay=0.0005
-    )
-
     artifact_dir = MODEL_ARTIFACTS_ROOT / model_id
     checkpoint_dir = artifact_dir / "checkpoints"
     artifact_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_path = checkpoint_dir / "checkpoint_latest.pt"
+    best_checkpoint_path = checkpoint_dir / "checkpoint_best.pt"
+    latest_artifact_path = artifact_dir / "model.pt"
+    best_artifact_path = artifact_dir / "best_model.pt"
+    validation_history_path = artifact_dir / "validation_history.json"
 
     state = initial_training_state(model_id=model_id, dataset_id=dataset["id"], total_samples=len(samples))
+    checkpoint: dict[str, Any] | None = None
+
+    print(f"{model_id} moviendo modelo a {device}...", flush=True)
+    model.to(device)
+
     if args.resume and checkpoint_path.exists():
         print(f"{model_id} cargando checkpoint {checkpoint_path}...", flush=True)
         checkpoint = load_torch_checkpoint(checkpoint_path, device)
-        print(f"{model_id} aplicando pesos y estado del optimizador...", flush=True)
+        print(f"{model_id} aplicando pesos...", flush=True)
         model.load_state_dict(checkpoint["state_dict"])
-        optimizer.load_state_dict(checkpoint["optimizer_state"])
         state = checkpoint.get("training_state", state)
         print(f"{model_id} reanudado desde {checkpoint_path}", flush=True)
+
+    if int(state.get("current_epoch", 0)) < args.freeze_backbone_epochs:
+        set_backbone_trainable(model, False)
+        state["backbone_frozen"] = True
+    else:
+        set_backbone_trainable(model, True)
+        state["backbone_frozen"] = False
+
+    print(f"{model_id} preparando optimizador lr={args.lr} momentum={args.momentum} weight_decay={args.weight_decay}...", flush=True)
+    optimizer = create_torchvision_optimizer(model, args)
+    scheduler = create_torchvision_scheduler(optimizer, args)
+    if checkpoint:
+        try:
+            if "optimizer_state" in checkpoint:
+                optimizer.load_state_dict(checkpoint["optimizer_state"])
+            if scheduler is not None and checkpoint.get("scheduler_state"):
+                scheduler.load_state_dict(checkpoint["scheduler_state"])
+        except ValueError as exc:
+            state["optimizer_resume_warning"] = str(exc)
+            print(f"{model_id} no pudo reusar el optimizador previo; se continua con uno nuevo: {exc}", flush=True)
 
     if int(state.get("current_epoch", 0)) >= args.epochs:
         return {
             "model": model_id,
             "status": "already_complete",
             "checkpoint_path": str(checkpoint_path),
+            "best_checkpoint_path": str(best_checkpoint_path) if best_checkpoint_path.exists() else None,
             "training_state": state
         }
 
     loss_history: list[float] = list(state.get("loss_history", []))
+    validation_history: list[dict[str, Any]] = list(state.get("validation_history", []))
     session_count = max(int(args.session_count), 1)
     completed_training = False
 
     for session_number in range(1, session_count + 1):
-        if int(state.get("current_epoch", 0)) >= args.epochs:
-            completed_training = True
+        if int(state.get("current_epoch", 0)) >= args.epochs or state.get("early_stopped"):
+            completed_training = int(state.get("current_epoch", 0)) >= args.epochs
             break
 
         epoch_index = int(state.get("current_epoch", 0))
+        if epoch_index >= args.freeze_backbone_epochs and state.get("backbone_frozen"):
+            print(f"{model_id} descongelando backbone en epoca {epoch_index + 1}...", flush=True)
+            set_backbone_trainable(model, True)
+            optimizer = create_torchvision_optimizer(model, args)
+            scheduler = create_torchvision_scheduler(optimizer, args)
+            state["backbone_frozen"] = False
+            state["optimizer_recreated_after_unfreeze"] = True
+
+        model.train()
         start_index = int(state.get("next_sample_index", 0))
         epoch_order = shuffled_epoch_indices(len(samples), epoch_index)
         session_size = len(samples) - start_index if args.session_samples <= 0 else args.session_samples
@@ -410,7 +462,7 @@ def train_torchvision_detector(
             f"{model_id} session {session_number}/{session_count} "
             f"epoch {epoch_index + 1}/{args.epochs} "
             f"items {start_index + 1}-{end_index}/{len(samples)} "
-            f"batches={len(data_loader)} device={device}",
+            f"batches={len(data_loader)} device={device} lr={current_learning_rate(optimizer):.6f}",
             flush=True
         )
 
@@ -435,7 +487,9 @@ def train_torchvision_detector(
                 "total_samples": len(samples),
                 "batch": args.batch,
                 "image_size": args.imgsz,
-                "device": str(device)
+                "device": str(device),
+                "learning_rate": current_learning_rate(optimizer),
+                "backbone_frozen": bool(state.get("backbone_frozen"))
             }
         )
 
@@ -469,6 +523,7 @@ def train_torchvision_detector(
                         "last_loss": batch_loss,
                         "last_batch": batch_number,
                         "last_session": session_number,
+                        "last_learning_rate": current_learning_rate(optimizer),
                         "last_update": datetime.now().isoformat(timespec="seconds"),
                         "elapsed_seconds": round(time.time() - start_time, 2)
                     }
@@ -505,7 +560,8 @@ def train_torchvision_detector(
                             "next_sample_index": state["next_sample_index"],
                             "total_samples": len(samples),
                             "loss": batch_loss,
-                            "progress_percent": round(progress_percent, 4)
+                            "progress_percent": round(progress_percent, 4),
+                            "learning_rate": current_learning_rate(optimizer)
                         }
                     )
 
@@ -514,6 +570,7 @@ def train_torchvision_detector(
                         checkpoint_path=checkpoint_path,
                         model=model,
                         optimizer=optimizer,
+                        scheduler=scheduler,
                         classes=classes,
                         state=state
                     )
@@ -542,6 +599,7 @@ def train_torchvision_detector(
                 checkpoint_path=checkpoint_path,
                 model=model,
                 optimizer=optimizer,
+                scheduler=scheduler,
                 classes=classes,
                 state=state
             )
@@ -568,17 +626,90 @@ def train_torchvision_detector(
                 f"loss={epoch_average_loss:.4f}",
                 flush=True
             )
+
+            if args.validate_every_epoch and validation_samples:
+                confidence_threshold, max_detections = resolve_validation_settings(model_id, args)
+                print(
+                    f"{model_id} validando epoca {epoch_index} "
+                    f"conf={confidence_threshold} max_det={max_detections}...",
+                    flush=True
+                )
+                validation_summary = evaluate_torchvision_model(
+                    model=model,
+                    samples=validation_samples,
+                    classes=classes,
+                    device=device,
+                    confidence_threshold=confidence_threshold,
+                    max_detections=max_detections,
+                )
+                validation_record = build_validation_record(
+                    epoch=epoch_index,
+                    loss=epoch_average_loss,
+                    summary=validation_summary,
+                    best_metric=args.best_metric,
+                )
+                validation_history.append(validation_record)
+                validation_history_path.write_text(json.dumps(validation_history, ensure_ascii=False, indent=2), encoding="utf-8")
+                state["validation_history"] = validation_history
+                state["last_validation"] = validation_record
+                state["best_metric"] = args.best_metric
+
+                best_value = state.get("best_metric_value")
+                current_value = float(validation_record["metric_value"])
+                improved = best_value is None or current_value > float(best_value) + args.min_delta
+                if improved:
+                    state["best_metric_value"] = current_value
+                    state["best_epoch"] = epoch_index
+                    state["best_checkpoint_path"] = relative_project_path(best_checkpoint_path)
+                    state["best_artifact_path"] = relative_project_path(best_artifact_path)
+                    state["epochs_without_improvement"] = 0
+                    save_torchvision_checkpoint(
+                        checkpoint_path=best_checkpoint_path,
+                        model=model,
+                        optimizer=optimizer,
+                        scheduler=scheduler,
+                        classes=classes,
+                        state=state
+                    )
+                    save_torchvision_artifact(
+                        artifact_path=best_artifact_path,
+                        model=model,
+                        classes=classes,
+                        state=state,
+                        metrics={"validation": validation_record, "validation_history": validation_history},
+                    )
+                    print(f"{model_id} nuevo best {args.best_metric}={current_value:.6f} en epoca {epoch_index}.", flush=True)
+                else:
+                    state["epochs_without_improvement"] = int(state.get("epochs_without_improvement", 0)) + 1
+                    print(
+                        f"{model_id} sin mejora en {args.best_metric}; "
+                        f"racha={state['epochs_without_improvement']}",
+                        flush=True
+                    )
+
+                if args.early_stopping_patience > 0 and int(state.get("epochs_without_improvement", 0)) >= args.early_stopping_patience:
+                    state["early_stopped"] = True
+                    state["early_stopped_epoch"] = epoch_index
+                    state["status"] = "early_stopped"
+
+            if scheduler is not None:
+                scheduler.step()
+                state["last_learning_rate"] = current_learning_rate(optimizer)
         else:
             state["loss_history"] = loss_history
 
         completed_training = int(state["current_epoch"]) >= args.epochs
-        state["status"] = "completed" if completed_training else "partial"
+        if state.get("early_stopped"):
+            state["status"] = "early_stopped"
+        else:
+            state["status"] = "completed" if completed_training else "partial"
         state["last_update"] = datetime.now().isoformat(timespec="seconds")
 
         save_torchvision_checkpoint(
             checkpoint_path=checkpoint_path,
             model=model,
             optimizer=optimizer,
+            scheduler=scheduler,
             classes=classes,
             state=state
         )
@@ -595,15 +726,17 @@ def train_torchvision_detector(
                 "status": state["status"],
                 "next_sample_index": state["next_sample_index"],
                 "total_samples": len(samples),
-                "checkpoint_path": relative_project_path(checkpoint_path)
+                "checkpoint_path": relative_project_path(checkpoint_path),
+                "best_checkpoint_path": state.get("best_checkpoint_path")
             }
         )
 
-        if completed_training:
+        if completed_training or state.get("early_stopped"):
             break
 
     metrics = {
         "loss_history": loss_history,
+        "validation_history": validation_history,
         "training_state": state
     }
     metrics_path = run_root / f"{model_id}_metrics.json"
@@ -618,31 +751,31 @@ def train_torchvision_detector(
             "next_sample_index": state["next_sample_index"],
             "total_samples": len(samples),
             "checkpoint_path": relative_project_path(checkpoint_path),
+            "best_checkpoint_path": state.get("best_checkpoint_path"),
             "progress_path": relative_project_path(artifact_dir / "training_progress.json"),
             "events_path": relative_project_path(artifact_dir / "training_events.jsonl"),
+            "validation_history_path": relative_project_path(validation_history_path) if validation_history_path.exists() else None,
             "run_dir": relative_project_path(run_root),
             "last_update": state["last_update"]
         }
     )
 
-    artifact_path = artifact_dir / "model.pt"
-    if completed_training or args.publish_partial:
-        torch.save(
-            {
-                "model_id": model_id,
-                "state_dict": model.state_dict(),
-                "classes": classes,
-                "epochs": state["current_epoch"],
-                "loss_history": loss_history,
-                "training_state": state
-            },
-            artifact_path
+    artifact_path = best_artifact_path if best_artifact_path.exists() else latest_artifact_path
+    if completed_training or args.publish_partial or state.get("early_stopped"):
+        save_torchvision_artifact(
+            artifact_path=latest_artifact_path,
+            model=model,
+            classes=classes,
+            state=state,
+            metrics=metrics,
         )
         update_model_registry(
             model_id,
             {
-                "status": "trained" if completed_training else "partial",
+                "status": "trained" if (completed_training or state.get("early_stopped")) else state["status"],
                 "artifact_path": relative_project_path(artifact_path),
+                "latest_artifact_path": relative_project_path(latest_artifact_path),
+                "best_artifact_path": relative_project_path(best_artifact_path) if best_artifact_path.exists() else None,
                 "metrics": metrics,
                 "labels": classes,
                 "training": {
@@ -651,7 +784,18 @@ def train_torchvision_detector(
                     "target_epochs": args.epochs,
                     "batch": args.batch,
                     "image_size": args.imgsz,
+                    "learning_rate": args.lr,
+                    "momentum": args.momentum,
+                    "weight_decay": args.weight_decay,
+                    "lr_step_size": args.lr_step_size,
+                    "lr_gamma": args.lr_gamma,
+                    "freeze_backbone_epochs": args.freeze_backbone_epochs,
+                    "best_metric": args.best_metric,
+                    "best_metric_value": state.get("best_metric_value"),
+                    "best_epoch": state.get("best_epoch"),
                     "checkpoint_path": relative_project_path(checkpoint_path),
+                    "best_checkpoint_path": state.get("best_checkpoint_path"),
+                    "validation_history_path": relative_project_path(validation_history_path) if validation_history_path.exists() else None,
                     "run_dir": relative_project_path(run_root),
                     "status": state["status"]
                 }
@@ -662,13 +806,16 @@ def train_torchvision_detector(
         "model": model_id,
         "status": state["status"],
         "artifact_path": str(artifact_path) if artifact_path.exists() else None,
+        "latest_artifact_path": str(latest_artifact_path) if latest_artifact_path.exists() else None,
+        "best_artifact_path": str(best_artifact_path) if best_artifact_path.exists() else None,
         "checkpoint_path": str(checkpoint_path),
+        "best_checkpoint_path": str(best_checkpoint_path) if best_checkpoint_path.exists() else None,
         "metrics_path": str(metrics_path),
+        "validation_history_path": str(validation_history_path) if validation_history_path.exists() else None,
         "progress_path": str(artifact_dir / "training_progress.json"),
         "events_path": str(artifact_dir / "training_events.jsonl"),
         "training_state": state
     }
-
 
 def initial_training_state(model_id: str, dataset_id: str, total_samples: int) -> dict[str, Any]:
     return {
@@ -698,23 +845,125 @@ def save_torchvision_checkpoint(
     checkpoint_path: Path,
     model: Any,
     optimizer: Any,
+    scheduler: Any | None,
     classes: list[str],
     state: dict[str, Any]
 ) -> None:
     import torch
 
     checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "model_id": state["model_id"],
+        "state_dict": model.state_dict(),
+        "optimizer_state": optimizer.state_dict(),
+        "classes": classes,
+        "training_state": state
+    }
+    if scheduler is not None:
+        payload["scheduler_state"] = scheduler.state_dict()
+    torch.save(payload, checkpoint_path)
+
+
+def save_torchvision_artifact(
+    artifact_path: Path,
+    model: Any,
+    classes: list[str],
+    state: dict[str, Any],
+    metrics: dict[str, Any]
+) -> None:
+    import torch
+
+    artifact_path.parent.mkdir(parents=True, exist_ok=True)
     torch.save(
         {
             "model_id": state["model_id"],
             "state_dict": model.state_dict(),
-            "optimizer_state": optimizer.state_dict(),
             "classes": classes,
-            "training_state": state
+            "epochs": state.get("current_epoch", 0),
+            "loss_history": state.get("loss_history", []),
+            "validation_history": state.get("validation_history", []),
+            "training_state": state,
+            "metrics": metrics,
         },
-        checkpoint_path
+        artifact_path
     )
 
+def create_torchvision_optimizer(model: Any, args: argparse.Namespace) -> Any:
+    import torch
+
+    return torch.optim.SGD(
+        [parameter for parameter in model.parameters() if parameter.requires_grad],
+        lr=args.lr,
+        momentum=args.momentum,
+        weight_decay=args.weight_decay,
+    )
+
+
+def create_torchvision_scheduler(optimizer: Any, args: argparse.Namespace) -> Any | None:
+    if args.lr_step_size <= 0:
+        return None
+    import torch
+
+    return torch.optim.lr_scheduler.StepLR(optimizer, step_size=args.lr_step_size, gamma=args.lr_gamma)
+
+
+def current_learning_rate(optimizer: Any) -> float:
+    if not optimizer.param_groups:
+        return 0.0
+    return float(optimizer.param_groups[0].get("lr", 0.0))
+
+
+def set_backbone_trainable(model: Any, trainable: bool) -> None:
+    backbone = getattr(model, "backbone", None)
+    if backbone is None:
+        return
+    for parameter in backbone.parameters():
+        parameter.requires_grad = trainable
+
+
+def resolve_validation_settings(model_id: str, args: argparse.Namespace) -> tuple[float, int]:
+    confidence = args.validation_confidence
+    max_detections = args.validation_max_detections
+    if confidence >= 0 and max_detections > 0:
+        return confidence, max_detections
+
+    model_config = get_model_config(model_id)
+    if confidence < 0:
+        confidence = float(model_config.get("confidence_threshold") or 0.0)
+    if max_detections <= 0:
+        max_detections = int(model_config.get("max_detections") or model_config.get("detections_per_img") or 100)
+    return confidence, max_detections
+
+
+def get_model_config(model_id: str) -> dict[str, Any]:
+    if not MODEL_REGISTRY_PATH.exists():
+        return {}
+    registry = json.loads(MODEL_REGISTRY_PATH.read_text(encoding="utf-8"))
+    for model in registry.get("models", []):
+        if model.get("id") == model_id:
+            return model
+    return {}
+
+
+def build_validation_record(epoch: int, loss: float, summary: dict[str, Any], best_metric: str) -> dict[str, Any]:
+    metrics = summary.get("metrics", {})
+    metric_value = float(metrics.get(best_metric) or 0.0)
+    return {
+        "epoch": epoch,
+        "loss": round(loss, 6),
+        "best_metric": best_metric,
+        "metric_value": round(metric_value, 6),
+        "map50": metrics.get("map50"),
+        "map50_95": metrics.get("map50_95"),
+        "precision_at_50": metrics.get("precision_at_50"),
+        "recall_at_50": metrics.get("recall_at_50"),
+        "false_positives_at_50": metrics.get("false_positives_at_50"),
+        "false_negatives_at_50": metrics.get("false_negatives_at_50"),
+        "evaluated_images": summary.get("evaluated_images"),
+        "total_predictions": summary.get("total_predictions"),
+        "avg_processing_time_ms": summary.get("avg_processing_time_ms"),
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+    }
 
 def load_torch_checkpoint(checkpoint_path: Path, device: Any) -> dict[str, Any]:
     import torch
@@ -851,3 +1100,9 @@ def relative_project_path(path: Path) -> str:
 
 if __name__ == "__main__":
     main()
+
+
+
+
+
+

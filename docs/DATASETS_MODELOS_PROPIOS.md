@@ -71,6 +71,33 @@ C:\Users\<usuario>\.ciml\venv
 
 Esto evita rutas largas de PyTorch dentro de OneDrive.
 
+
+## Entrenamiento con validacion y checkpoints
+
+Ejemplo local o remoto para Faster R-CNN con VOC:
+
+```powershell
+.\scripts\train-voc-managed.ps1 -Models faster-rcnn -Epochs 10 -Batch 2 -ImageSize 640 -ValidateEveryEpoch -LearningRate 0.001 -FreezeBackboneEpochs 1 -LrStepSize 3 -LrGamma 0.5 -EarlyStoppingPatience 3 -ValidationLimit 500 -CheckpointEvery 100
+```
+
+Ejemplo equivalente para RetinaNet:
+
+```powershell
+.\scripts\train-voc-managed.ps1 -Models retinanet -Epochs 10 -Batch 2 -ImageSize 640 -ValidateEveryEpoch -LearningRate 0.0005 -FreezeBackboneEpochs 1 -LrStepSize 3 -LrGamma 0.5 -EarlyStoppingPatience 3 -ValidationLimit 500 -CheckpointEvery 100
+```
+
+Archivos importantes generados por modelo:
+
+| Archivo | Funcion |
+|---|---|
+| `checkpoint_latest.pt` | Punto mas reciente para reanudar si el proceso se corta. |
+| `checkpoint_best.pt` | Mejor checkpoint segun la metrica de validacion. |
+| `model.pt` | Ultimo artefacto publicado. |
+| `best_model.pt` | Artefacto recomendado para inferencia si existe. |
+| `validation_history.json` | Historial de metricas por epoca. |
+| `training_progress.json` | Estado resumido consultable durante el entrenamiento. |
+| `training_events.jsonl` | Eventos incrementales de progreso. |
+
 ## Politica de limpieza
 
 Se pueden eliminar y regenerar:
@@ -92,3 +119,5 @@ No eliminar sin reemplazo:
 - `ml/models/*/best.pt`
 - `ml/models/*/checkpoint_latest.pt`
 - `docs/REGISTRO_ENTRENAMIENTOS.md`
+
+

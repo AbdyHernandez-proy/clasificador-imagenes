@@ -11,9 +11,22 @@ param(
     [int]$LogEvery = 25,
     [int]$CheckpointEvery = 0,
     [int]$Workers = 0,
+    [double]$LearningRate = 0.0025,
+    [double]$Momentum = 0.9,
+    [double]$WeightDecay = 0.0005,
+    [int]$LrStepSize = 0,
+    [double]$LrGamma = 0.1,
+    [int]$FreezeBackboneEpochs = 0,
+    [int]$ValidationLimit = 250,
+    [double]$ValidationConfidence = -1,
+    [int]$ValidationMaxDetections = 0,
+    [string]$BestMetric = "map50_95",
+    [double]$MinDelta = 0.0001,
+    [int]$EarlyStoppingPatience = 0,
     [string]$VenvPath = "",
     [switch]$Resume,
     [switch]$PublishPartial,
+    [switch]$ValidateEveryEpoch,
     [switch]$AllowEfficientDet,
     [switch]$Install
 )
@@ -75,7 +88,19 @@ $ArgsList = @(
     "--session-count", "$SessionCount",
     "--log-every", "$LogEvery",
     "--checkpoint-every", "$CheckpointEvery",
-    "--workers", "$Workers"
+    "--workers", "$Workers",
+    "--lr", "$LearningRate",
+    "--momentum", "$Momentum",
+    "--weight-decay", "$WeightDecay",
+    "--lr-step-size", "$LrStepSize",
+    "--lr-gamma", "$LrGamma",
+    "--freeze-backbone-epochs", "$FreezeBackboneEpochs",
+    "--validation-limit", "$ValidationLimit",
+    "--validation-confidence", "$ValidationConfidence",
+    "--validation-max-detections", "$ValidationMaxDetections",
+    "--best-metric", $BestMetric,
+    "--min-delta", "$MinDelta",
+    "--early-stopping-patience", "$EarlyStoppingPatience"
 )
 
 if ($Resume) {
@@ -84,6 +109,10 @@ if ($Resume) {
 
 if ($PublishPartial) {
     $ArgsList += "--publish-partial"
+}
+
+if ($ValidateEveryEpoch) {
+    $ArgsList += "--validate-every-epoch"
 }
 
 if ($AllowEfficientDet) {

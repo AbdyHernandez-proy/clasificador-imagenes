@@ -9,8 +9,21 @@ param(
     [int]$CheckpointEvery = 0,
     [int]$Workers = 0,
     [string]$Device = "auto",
+    [double]$LearningRate = 0.001,
+    [double]$Momentum = 0.9,
+    [double]$WeightDecay = 0.0005,
+    [int]$LrStepSize = 2,
+    [double]$LrGamma = 0.5,
+    [int]$FreezeBackboneEpochs = 1,
+    [int]$ValidationLimit = 250,
+    [double]$ValidationConfidence = -1,
+    [int]$ValidationMaxDetections = 0,
+    [string]$BestMetric = "map50_95",
+    [double]$MinDelta = 0.0001,
+    [int]$EarlyStoppingPatience = 2,
     [string]$VenvPath = "",
-    [switch]$PublishPartial
+    [switch]$PublishPartial,
+    [switch]$ValidateEveryEpoch
 )
 
 $ErrorActionPreference = "Stop"
@@ -29,6 +42,18 @@ $CallParams = @{
     Workers = $Workers
     Device = $Device
     Resume = $true
+    LearningRate = $LearningRate
+    Momentum = $Momentum
+    WeightDecay = $WeightDecay
+    LrStepSize = $LrStepSize
+    LrGamma = $LrGamma
+    FreezeBackboneEpochs = $FreezeBackboneEpochs
+    ValidationLimit = $ValidationLimit
+    ValidationConfidence = $ValidationConfidence
+    ValidationMaxDetections = $ValidationMaxDetections
+    BestMetric = $BestMetric
+    MinDelta = $MinDelta
+    EarlyStoppingPatience = $EarlyStoppingPatience
 }
 
 if ($VenvPath) {
@@ -37,6 +62,10 @@ if ($VenvPath) {
 
 if ($PublishPartial) {
     $CallParams["PublishPartial"] = $true
+}
+
+if ($ValidateEveryEpoch) {
+    $CallParams["ValidateEveryEpoch"] = $true
 }
 
 Write-Host ""
