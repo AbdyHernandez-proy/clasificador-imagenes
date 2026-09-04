@@ -1,30 +1,31 @@
 {
-  "id": "custom-yolo-v8-v11-detector",
-  "name": "YOLOv8 / YOLOv11 Detector",
-  "architecture_family": "YOLO",
-  "framework": "ultralytics",
-  "task": "object_detection",
-  "status": "scaffold",
-  "default_dataset_id": "coco128-detect",
-  "compatible_dataset_formats": [
-    "yolo"
-  ],
-  "compatible_dataset_tasks": [
-    "object_detection"
-  ],
-  "target_class_set": "coco80",
-  "target_class_count": 80,
-  "target_classes_path": "ml/training/datasets/coco_classes.py",
-  "target_description": "Detecta las 80 clases de COCO: personas, vehiculos, animales, objetos cotidianos, comida, muebles y electronica.",
-  "artifact_path": "ml/models/custom-yolo-v8-v11-detector/best.pt",
-  "suggested_base_weights": [
-    "yolov8n.pt",
-    "yolo11n.pt"
-  ],
-  "recommended_for": [
-    "deteccion general de objetos",
-    "primer entrenamiento propio",
-    "prototipos rapidos"
-  ],
-  "notes": "Usa datasets YOLO directamente. Requiere revisar licencia de Ultralytics si el proyecto se usa de forma privada/comercial."
+    "id":  "custom-yolo-v8-v11-detector",
+    "name":  "YOLOv8 / YOLOv11 Detector",
+    "architecture_family":  "YOLO",
+    "framework":  "ultralytics",
+    "task":  "object_detection",
+    "status":  "scaffold",
+    "default_dataset_id":  "coco128-detect",
+    "compatible_dataset_formats":  [
+                                       "yolo"
+                                   ],
+    "compatible_dataset_tasks":  [
+                                     "object_detection"
+                                 ],
+    "target_class_set":  "coco80",
+    "target_class_count":  80,
+    "target_classes_path":  "ml/training/datasets/coco_classes.py",
+    "target_description":  "Detecta las 80 clases de COCO: personas, vehiculos, animales, objetos cotidianos, comida, muebles y electronica.",
+    "artifact_path":  "ml/models/custom-yolo-v8-v11-detector/yolo-v8-v11-detector.pt",
+    "suggested_base_weights":  [
+                                   "yolov8n.pt",
+                                   "yolo11n.pt"
+                               ],
+    "recommended_for":  [
+                            "deteccion general de objetos",
+                            "primer entrenamiento propio",
+                            "prototipos rapidos"
+                        ],
+    "notes":  "Version final de despliegue: se conserva solo el artefacto final con nombre del modelo. last.pt y metrics.json se eliminaron tras consolidar metricas en docs y registry.",
+    "latest_artifact_path":  "ml/models/custom-yolo-v8-v11-detector/yolo-v8-v11-detector.pt"
 }

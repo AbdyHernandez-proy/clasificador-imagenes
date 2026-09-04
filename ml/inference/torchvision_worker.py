@@ -37,20 +37,22 @@ def main() -> None:
             max_detections = int(request.get("max_detections", 50))
             nms_threshold = float(request.get("nms_threshold", 0.5))
             detections_per_img = int(request.get("detections_per_img", max_detections))
+            image_size = int(request.get("image_size", 512))
 
             if not model_path.exists():
                 raise FileNotFoundError(f"No existe el modelo: {model_path}")
             if not image_path.exists():
                 raise FileNotFoundError(f"No existe la imagen: {image_path}")
 
-            cache_key = f"{model_path.resolve()}|nms={nms_threshold}|detections={detections_per_img}"
+            cache_key = f"{model_path.resolve()}|nms={nms_threshold}|detections={detections_per_img}|size={image_size}"
             if cache_key not in models:
                 models[cache_key] = load_model(
                     model_id=model_id,
                     model_path=model_path,
                     device=device,
                     nms_threshold=nms_threshold,
-                    detections_per_img=detections_per_img
+                    detections_per_img=detections_per_img,
+                    image_size=image_size
                 )
 
             model, classes = models[cache_key]
@@ -78,7 +80,8 @@ def load_model(
     model_path: Path,
     device: Any,
     nms_threshold: float,
-    detections_per_img: int
+    detections_per_img: int,
+    image_size: int
 ) -> tuple[Any, list[str]]:
     import torch
     from torchvision.models.detection import fasterrcnn_resnet50_fpn, retinanet_resnet50_fpn
@@ -92,6 +95,8 @@ def load_model(
             weights=None,
             weights_backbone=None,
             num_classes=num_classes,
+            min_size=image_size,
+            max_size=image_size,
             box_score_thresh=0.0,
             box_nms_thresh=nms_threshold,
             box_detections_per_img=detections_per_img
@@ -101,6 +106,8 @@ def load_model(
             weights=None,
             weights_backbone=None,
             num_classes=num_classes,
+            min_size=image_size,
+            max_size=image_size,
             score_thresh=0.0,
             nms_thresh=nms_threshold,
             detections_per_img=detections_per_img

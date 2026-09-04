@@ -34,13 +34,23 @@ def shutdown_workers() -> None:
 def list_models() -> dict:
     return {
         "default_model": registry.get_default_model_id(),
-        "models": registry.list_models()
+        "models": [model_public_summary(model) for model in registry.list_models()]
     }
 
 
 @app.get("/models/registry")
 def list_model_registry() -> dict:
     return registry.load()
+
+
+@app.post("/models/preload")
+def preload_models() -> dict:
+    return inference_service.preload_models_async()
+
+
+@app.get("/models/preload")
+def preload_status() -> dict:
+    return inference_service.get_preload_status()
 
 
 @app.get("/datasets")
@@ -61,3 +71,22 @@ def get_dataset(dataset_id: str) -> dict:
 @app.post("/predict")
 async def predict(image: UploadFile = File(...), model_id: str | None = Form(default=None)) -> dict:
     return await inference_service.predict(image=image, model_id=model_id)
+
+
+def model_public_summary(model: dict) -> dict:
+    keys = [
+        "id",
+        "name",
+        "version",
+        "runtime",
+        "task",
+        "status",
+        "serve",
+        "description",
+        "efficiency",
+        "confidence_threshold",
+        "iou_threshold",
+        "nms_threshold",
+        "max_detections",
+    ]
+    return {key: model[key] for key in keys if key in model}

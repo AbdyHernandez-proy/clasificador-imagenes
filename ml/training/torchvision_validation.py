@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 from ml.training.datasets.yolo_detection import DetectionSample
 
@@ -50,6 +50,8 @@ def evaluate_torchvision_model(
     device: Any,
     confidence_threshold: float,
     max_detections: int,
+    visual_output_dir: Path | None = None,
+    visual_limit: int = 0,
 ) -> dict[str, Any]:
     import torch
     from torchvision.transforms import functional as F
@@ -63,20 +65,29 @@ def evaluate_torchvision_model(
     with torch.no_grad():
         for index, sample in enumerate(samples, start=1):
             image_key = sample.image_path.name
-            ground_truth_by_image[image_key] = targets_to_ground_truth(sample, classes)
+            ground_truth = targets_to_ground_truth(sample, classes)
+            ground_truth_by_image[image_key] = ground_truth
             started = time.perf_counter()
             try:
                 image = Image.open(sample.image_path).convert("RGB")
                 tensor = F.convert_image_dtype(F.pil_to_tensor(image), dtype=torch.float32).to(device)
                 output = model([tensor])[0]
                 timings.append((time.perf_counter() - started) * 1000)
-                predictions_by_image[image_key] = output_to_predictions(
+                predictions = output_to_predictions(
                     image_key=image_key,
                     output=output,
                     classes=classes,
                     confidence_threshold=confidence_threshold,
                     max_detections=max_detections,
                 )
+                predictions_by_image[image_key] = predictions
+                if visual_output_dir and index <= visual_limit:
+                    save_visual_evaluation_image(
+                        image=image,
+                        output_path=visual_output_dir / f"{index:04d}_{sample.image_path.stem}.jpg",
+                        predictions=predictions,
+                        ground_truth=ground_truth,
+                    )
             except Exception as exc:  # noqa: BLE001 - validacion: registrar y continuar.
                 failures.append({"image": image_key, "error": str(exc)})
                 predictions_by_image[image_key] = []
@@ -98,8 +109,59 @@ def evaluate_torchvision_model(
             4,
         ),
         "avg_processing_time_ms": round(sum(timings) / max(1, len(timings)), 2),
+        "visual_output_dir": str(visual_output_dir) if visual_output_dir else None,
+        "visual_outputs": min(max(visual_limit, 0), len(samples)) if visual_output_dir else 0,
         "metrics": metrics,
     }
+
+
+def save_visual_evaluation_image(
+    image: Image.Image,
+    output_path: Path,
+    predictions: list[Prediction],
+    ground_truth: list[GroundTruth],
+) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    canvas = image.copy()
+    draw = ImageDraw.Draw(canvas)
+    font = ImageFont.load_default()
+
+    for index, gt in enumerate(ground_truth, start=1):
+        draw_box_with_label(
+            draw=draw,
+            bbox=gt.bbox,
+            label=f"GT {index} {gt.label}",
+            color=(255, 196, 0),
+            font=font,
+        )
+
+    for index, prediction in enumerate(predictions, start=1):
+        draw_box_with_label(
+            draw=draw,
+            bbox=prediction.bbox,
+            label=f"#{index} {prediction.label} {prediction.confidence:.2f}",
+            color=(0, 190, 140),
+            font=font,
+        )
+
+    canvas.save(output_path, quality=92)
+
+
+def draw_box_with_label(
+    draw: ImageDraw.ImageDraw,
+    bbox: tuple[float, float, float, float],
+    label: str,
+    color: tuple[int, int, int],
+    font: ImageFont.ImageFont,
+) -> None:
+    x1, y1, x2, y2 = bbox
+    draw.rectangle((x1, y1, x2, y2), outline=color, width=3)
+    label_bbox = draw.textbbox((x1, y1), label, font=font)
+    label_width = label_bbox[2] - label_bbox[0]
+    label_height = label_bbox[3] - label_bbox[1]
+    label_y = max(0, y1 - label_height - 4)
+    draw.rectangle((x1, label_y, x1 + label_width + 6, label_y + label_height + 4), fill=color)
+    draw.text((x1 + 3, label_y + 2), label, fill=(0, 0, 0), font=font)
 
 
 def targets_to_ground_truth(sample: DetectionSample, classes: list[str]) -> list[GroundTruth]:

@@ -20,7 +20,7 @@ class DatasetRegistry:
         if not self.registry_path.exists():
             return {"schema_version": 1, "datasets": []}
 
-        with self.registry_path.open("r", encoding="utf-8") as registry_file:
+        with self.registry_path.open("r", encoding="utf-8-sig") as registry_file:
             return json.load(registry_file)
 
     def save(self, registry: dict[str, Any]) -> None:

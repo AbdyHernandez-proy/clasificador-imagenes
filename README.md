@@ -21,11 +21,25 @@ Clasificador_Imagenes/
 |-- frontend/              # Interfaz web Vite/TensorFlow.js actual
 |-- backend/               # API interna FastAPI
 |-- ml/                    # Registro, datasets y modelos propios
-|-- docs/                  # Documentacion tecnica y roadmap
+|-- docs/                  # Documentacion tecnica por modelo
 |-- .github/workflows/     # Deploy del frontend a GitHub Pages
-|-- SETUP.md
 `-- README.md
 ```
+
+## Ejecucion completa local
+
+Desde la raiz del proyecto:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\development\start-app.ps1
+```
+
+Esto inicia:
+
+- Backend FastAPI en `http://127.0.0.1:8000`.
+- Frontend Vite en `http://127.0.0.1:3000`.
+
+Los modelos propios necesitan el backend activo. La primera prediccion de cada familia de modelo puede tardar mas porque se cargan arquitectura y pesos en memoria; las siguientes predicciones reutilizan workers persistentes.
 
 ## Frontend
 
@@ -39,7 +53,7 @@ Responsabilidades actuales:
 - Permitir subir imagenes o usar webcam.
 - Validar imagenes antes de procesarlas.
 - Mostrar predicciones, confianza y tiempo de procesamiento.
-- Dibujar cajas de deteccion para COCO-SSD.
+- Dibujar cajas de deteccion para modelos del navegador y modelos propios del backend.
 - Mantener GitHub Pages funcionando para pruebas remotas con modelos del navegador.
 - Usar fallback automatico a modelos del navegador si el backend no esta disponible.
 
@@ -80,6 +94,9 @@ Endpoints:
 
 - `GET /health`
 - `GET /models`
+- `GET /models/registry`
+- `GET /datasets`
+- `GET /datasets/{dataset_id}`
 - `POST /predict`
 
 Ejecucion local:
@@ -98,7 +115,7 @@ Ubicacion: `ml/`
 
 Responsabilidades:
 
-- Guardar datasets.
+- Registrar datasets disponibles para descarga/preparacion local.
 - Guardar modelos entrenados.
 - Registrar modelos disponibles en `ml/registry.json`.
 
@@ -108,31 +125,56 @@ Estructura:
 ml/
 |-- datasets/
 |-- models/
+|-- model_assets.json
 `-- registry.json
 ```
 
-Los scripts de entrenamiento e inferencia propios se agregaran cuando se construya esa etapa del roadmap. Mientras no existan scripts reales, no se versionan carpetas vacias para evitar ruido.
+Los scripts de entrenamiento, evaluacion e inferencia propia viven en `scripts/`, `ml/training/`, `ml/evaluation/` y `ml/inference/`.
+
+Los datasets descargados no se versionan en Git para evitar subir archivos pesados. Se reconstruyen localmente desde el catalogo con:
+
+```powershell
+.\scripts\datasets\download-datasets.ps1
+```
+
+Los pesos finales de modelos tampoco se versionan en Git. Se mantienen fuera del repositorio en `ml/models/` y se publican como assets de GitHub Releases. El archivo `ml/model_assets.json` registra cada artefacto, su destino local, tamano y SHA256.
+
+Para restaurar los modelos despues de clonar el repositorio:
+
+```powershell
+.\scripts\models\download-models.ps1
+```
+
+Si PowerShell bloquea scripts en Windows:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\models\download-models.ps1
+```
+
+Para publicar los pesos locales en GitHub Releases desde una maquina autenticada con GitHub CLI:
+
+```powershell
+gh auth login
+.\scripts\models\publish-models-release.ps1
+```
+
+Alternativa con bypass temporal de politica:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\models\publish-models-release.ps1
+```
 
 ## Registro de modelos
 
 No se usara base de datos inicialmente. El backend leera `ml/registry.json`.
 
-Registro actual:
+El registro actual contiene el modelo backend de perfil visual y cinco detectores propios listos para inferencia:
 
-```json
-{
-  "default_model": "visual-profile-v1",
-  "models": [
-    {
-      "id": "visual-profile-v1",
-      "name": "Perfil visual backend",
-      "version": "v1",
-      "runtime": "backend_builtin",
-      "task": "image_profile_classification"
-    }
-  ]
-}
-```
+- `custom-yolo-v8-v11-detector`
+- `custom-faster-rcnn-detector`
+- `custom-retinanet-detector`
+- `custom-detr-rtdetr-detector`
+- `custom-efficientdet-detector`
 
 ## Modelos actuales
 
@@ -156,13 +198,44 @@ Modelo para deteccion de manos. Devuelve una caja aproximada por mano y el conte
 
 Modelo de segmentacion de persona. Indica si encuentra una persona y calcula la proporcion aproximada de pixeles segmentados.
 
-### Perfil visual backend
+### Perfil visual backend interno
 
-Modelo interno de referencia registrado como `visual-profile-v1`. Corre en FastAPI con Pillow y clasifica propiedades visuales basicas: brillo, color dominante y orientacion. No es todavia un modelo entrenado propio; existe para validar el flujo backend completo mientras se construyen datasets, entrenamiento y exportacion de modelos reales.
+Modelo interno de referencia registrado como `visual-profile-v1`. Corre en FastAPI con Pillow y clasifica propiedades visuales basicas: brillo, color dominante y orientacion. Se mantiene como utilidad interna del backend; no forma parte del selector principal de modelos visibles.
+
+### YOLOv8 / YOLOv11 Detector (Backend)
+
+Detector general entrenado con COCO128. Localiza objetos de las clases COCO mediante cajas y confianza. Runtime: Ultralytics.
+
+### Faster R-CNN Detector (Backend)
+
+Detector entrenado con PASCAL VOC 60/40. Prioriza precision mediante propuestas de region antes de clasificar objetos. Runtime: TorchVision.
+
+### RetinaNet Detector (Backend)
+
+Detector entrenado con PASCAL VOC 60/40. Usa focal loss y FPN para manejar mejor clases dificiles o desbalanceadas. Runtime: TorchVision.
+
+### DETR / RT-DETR Detector (Backend)
+
+Detector entrenado con PASCAL VOC 60/40. Usa arquitectura tipo transformer para comparar contra detectores CNN clasicos. Runtime: Ultralytics RT-DETR.
+
+### EfficientDet Detector (Backend)
+
+Detector entrenado con PASCAL VOC 60/40 y consolidado desde la epoca 8. Usa EfficientNet y BiFPN para equilibrar consumo, velocidad y precision. Runtime: EfficientDet en backend mediante worker persistente, configurado para inferencia CPU por estabilidad local.
 
 ## GitHub Pages
 
-El workflow publica solo el frontend desde `frontend/dist`.
+El workflow publica solo el frontend desde `frontend/dist`. En GitHub Pages funcionan los modelos del navegador; los modelos propios requieren un backend activo accesible desde la web, por ejemplo mediante tunnel o despliegue de API.
+
+## GitHub Releases
+
+El codigo fuente, registros, scripts y documentacion se suben a Git. Los artefactos `.pt` de los modelos backend se suben a una Release para evitar que el repositorio crezca innecesariamente.
+
+Flujo recomendado:
+
+1. Subir el codigo a Git.
+2. Publicar los modelos con `.\scripts\models\publish-models-release.ps1`.
+3. En una instalacion nueva, ejecutar `.\scripts\models\download-models.ps1`.
+4. Iniciar backend y frontend con `.\scripts\development\start-app.ps1`.
 
 URL actual:
 

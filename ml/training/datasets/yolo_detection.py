@@ -86,7 +86,11 @@ def build_yolo_index(dataset_root: Path, image_split: str) -> list[DetectionSamp
 
 
 def yolo_index_cache_path(dataset_root: Path, image_split: str) -> Path:
-    cache_key = hashlib.sha1(str(image_split).encode("utf-8")).hexdigest()[:12]
+    split_path = dataset_root / image_split
+    cache_source = image_split.encode("utf-8")
+    if split_path.is_file():
+        cache_source += b"\0" + split_path.read_bytes()
+    cache_key = hashlib.sha1(cache_source).hexdigest()[:12]
     return dataset_root / ".cache" / f"yolo_index_{cache_key}.json"
 
 
