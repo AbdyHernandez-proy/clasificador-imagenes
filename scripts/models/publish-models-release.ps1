@@ -108,8 +108,25 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $viewArgs = @("release", "view", $ReleaseTag, "--repo", $resolvedOwnerRepo)
+$previousErrorActionPreference = $ErrorActionPreference
+$previousNativeCommandPreference = $null
+$hasNativeCommandPreference = Test-Path Variable:\PSNativeCommandUseErrorActionPreference
+
+if ($hasNativeCommandPreference) {
+    $previousNativeCommandPreference = $PSNativeCommandUseErrorActionPreference
+    $PSNativeCommandUseErrorActionPreference = $false
+}
+
+$ErrorActionPreference = "Continue"
 & gh @viewArgs 1>$null 2>$null
-$releaseExists = ($LASTEXITCODE -eq 0)
+$viewExitCode = $LASTEXITCODE
+$ErrorActionPreference = $previousErrorActionPreference
+
+if ($hasNativeCommandPreference) {
+    $PSNativeCommandUseErrorActionPreference = $previousNativeCommandPreference
+}
+
+$releaseExists = ($viewExitCode -eq 0)
 
 if (-not $releaseExists) {
     $notes = "Artefactos finales de modelos backend. El codigo versiona ml/model_assets.json y estos pesos se descargan con scripts/models/download-models.ps1."
