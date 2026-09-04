@@ -12,6 +12,7 @@ export class ClassifierUI {
         this.activeModelMenu = requireElementById('active-model-menu');
         this.activeModelStatus = requireElementById('active-model-status');
         this.activeModelName = requireElementById('active-model-name');
+        this.webcamNote = requireElementById('webcam-note');
         this.confidenceValue = requireElementById('confidence-value');
         this.timeValue = requireElementById('time-value');
         this.imageContainer = requireSelector('.image-container');
@@ -20,9 +21,9 @@ export class ClassifierUI {
         this.detectionCanvas = requireElementById('detection-canvas');
     }
 
-    showLoading() {
+    showLoading(message = 'Procesando...') {
         this.loadingSpinner.style.display = 'inline-block';
-        this.setStatusMessage('Procesando...');
+        this.setStatusMessage(message, 'loading-state');
     }
 
     hideLoading() {
@@ -67,7 +68,7 @@ export class ClassifierUI {
         this.resultsContainer.replaceChildren();
 
         if (!predictions || predictions.length === 0) {
-            this.setStatusMessage('Sin resultados');
+            this.setStatusMessage(`No se detectaron objetos con ${modelType}.`, 'no-results-state');
             return;
         }
 
@@ -121,6 +122,8 @@ export class ClassifierUI {
         if (predictions && predictions.length > 0) {
             const confidence = this.getPredictionConfidence(predictions[0]);
             this.confidenceValue.textContent = (confidence * 100).toFixed(2) + '%';
+        } else {
+            this.confidenceValue.textContent = '-';
         }
 
         this.timeValue.textContent = processingTime + 'ms';
@@ -205,16 +208,66 @@ export class ClassifierUI {
         const modelSelect = requireElementById('model-select');
         modelSelect.replaceChildren();
 
+        const realtimeModels = models.filter((model) => model.runtime === 'browser');
+        const imageOnlyModels = models.filter((model) => model.runtime === 'backend');
+
+        this.appendModelGroup(
+            modelSelect,
+            'Modelos para imagenes y camara',
+            'Clasificacion con imagenes cargadas y uso en tiempo real.',
+            realtimeModels,
+            selectedModelId
+        );
+        this.appendModelGroup(
+            modelSelect,
+            'Modelos solo para imagenes',
+            'Modelos propios del backend para analizar imagenes cargadas.',
+            imageOnlyModels,
+            selectedModelId
+        );
+
+        this.setSelectedModelOption(selectedModelId);
+    }
+
+    appendModelGroup(modelSelect, title, description, models, selectedModelId) {
+        if (!models.length) return;
+
+        const group = document.createElement('section');
+        group.className = 'model-group';
+
+        const heading = document.createElement('div');
+        heading.className = 'model-group-heading';
+
+        const titleElement = document.createElement('span');
+        titleElement.className = 'model-group-title';
+        titleElement.textContent = title;
+
+        const descriptionElement = document.createElement('span');
+        descriptionElement.className = 'model-group-description';
+        descriptionElement.textContent = description;
+
+        const grid = document.createElement('div');
+        grid.className = 'model-group-grid';
+
+        heading.append(titleElement, descriptionElement);
+        group.append(heading, grid);
+
         models.forEach((model) => {
             const option = document.createElement('button');
             const isSelected = model.id === selectedModelId;
+            const isEnabled = model.selectable !== false;
 
             option.type = 'button';
             option.className = 'model-option';
+            option.classList.add(model.runtime === 'backend' ? 'model-option-backend' : 'model-option-browser');
+            option.classList.toggle('is-disabled', !isEnabled);
             option.dataset.modelId = model.id;
+            option.disabled = !isEnabled;
+            option.title = isEnabled ? model.description || model.name : model.unavailableReason || 'Modelo no disponible';
             option.setAttribute('role', 'radio');
             option.setAttribute('aria-checked', String(isSelected));
-            option.tabIndex = isSelected ? 0 : -1;
+            option.setAttribute('aria-disabled', String(!isEnabled));
+            option.tabIndex = isEnabled && isSelected ? 0 : -1;
 
             const header = document.createElement('span');
             header.className = 'model-option-header';
@@ -231,16 +284,30 @@ export class ClassifierUI {
             efficiency.className = `model-option-efficiency efficiency-${this.getEfficiencyClass(model.efficiency)}`;
             efficiency.textContent = model.efficiency || 'Medio';
 
+            const status = document.createElement('span');
+            status.className = `model-option-status status-${this.getStatusClass(model.status)}`;
+            status.textContent = model.statusLabel || 'Listo';
+
+            const mode = document.createElement('span');
+            mode.className = `model-option-mode mode-${model.runtime === 'backend' ? 'image-only' : 'realtime'}`;
+            mode.textContent = model.modeLabel || (model.supportsWebcam ? 'Imagen/camara' : 'Solo imagen');
+
+            const metadata = document.createElement('span');
+            metadata.className = 'model-option-metadata';
+            metadata.append(mode, efficiency, status);
+
             const description = document.createElement('span');
             description.className = 'model-option-description';
-            description.textContent = model.description || model.task || 'Modelo disponible';
+            description.textContent = isEnabled
+                ? model.description || model.task || 'Modelo disponible'
+                : model.unavailableReason || model.description || model.task || 'Modelo no disponible';
 
             header.append(name, usage);
-            option.append(header, efficiency, description);
-            modelSelect.append(option);
+            option.append(header, metadata, description);
+            grid.append(option);
         });
 
-        this.setSelectedModelOption(selectedModelId);
+        modelSelect.append(group);
     }
 
     setSelectedModelOption(modelId) {
@@ -251,12 +318,12 @@ export class ClassifierUI {
             const isSelected = option.dataset.modelId === modelId;
             option.classList.toggle('is-selected', isSelected);
             option.setAttribute('aria-checked', String(isSelected));
-            option.tabIndex = isSelected ? 0 : -1;
+            option.tabIndex = !option.disabled && isSelected ? 0 : -1;
         });
     }
 
     populateActiveModelMenu(models, selectedModelId) {
-        const options = models.filter((model) => model.id !== selectedModelId);
+        const options = models.filter((model) => model.id !== selectedModelId && model.selectable !== false);
         this.activeModelMenu.replaceChildren();
 
         if (options.length === 0) {
@@ -293,9 +360,54 @@ export class ClassifierUI {
     updateModelDetails(model) {
         requireElementById('model-task').textContent = model.task || 'Modelo';
         requireElementById('model-algorithm').textContent = model.algorithm || model.runtime || 'Algoritmo no especificado';
+        requireElementById('model-status-detail').textContent = `Estado: ${model.statusLabel || 'Listo'}`;
+        requireElementById('model-status-detail').className = `model-status-detail status-${this.getStatusClass(model.status)}`;
         requireElementById('model-efficiency').textContent = `Eficiencia: ${model.efficiency || 'Medio'}`;
         requireElementById('model-efficiency').className = `model-efficiency efficiency-${this.getEfficiencyClass(model.efficiency)}`;
-        requireElementById('model-description').textContent = model.description || 'Sin descripcion disponible.';
+
+        const description = requireElementById('model-description');
+        const descriptionText = document.createElement('span');
+        descriptionText.className = 'model-description-text';
+        descriptionText.textContent = model.description || 'Sin descripcion disponible.';
+        description.replaceChildren(descriptionText);
+
+        if (model.runtime === 'backend') {
+            const classes = this.getDetectableClasses(model);
+            if (classes.length > 0) {
+                description.append(this.createDetectableClassesBlock(classes));
+            }
+        }
+    }
+
+    getDetectableClasses(model) {
+        const labels = model.metadata?.labels || model.labels || [];
+        if (!Array.isArray(labels)) return [];
+
+        return labels
+            .map((label) => String(label).trim())
+            .filter(Boolean);
+    }
+
+    createDetectableClassesBlock(classes) {
+        const wrapper = document.createElement('span');
+        wrapper.className = 'model-classes';
+
+        const label = document.createElement('span');
+        label.className = 'model-classes-title';
+        label.textContent = 'Clases detectables';
+
+        const list = document.createElement('span');
+        list.className = 'model-classes-list';
+
+        classes.forEach((className) => {
+            const chip = document.createElement('span');
+            chip.className = 'model-class-chip';
+            chip.textContent = className;
+            list.append(chip);
+        });
+
+        wrapper.append(label, list);
+        return wrapper;
     }
 
     getEfficiencyClass(efficiency) {
@@ -305,6 +417,17 @@ export class ClassifierUI {
         if (normalized === 'lento') return 'slow';
 
         return 'medium';
+    }
+
+    getStatusClass(status) {
+        const normalized = (status || 'ready').toLowerCase();
+
+        if (normalized === 'ready' || normalized === 'trained') return 'ready';
+        if (normalized === 'training' || normalized === 'partial') return 'training';
+        if (normalized === 'planned') return 'planned';
+        if (normalized === 'failed') return 'failed';
+
+        return 'unavailable';
     }
 
     updateWebcamAvailability(model) {
@@ -324,6 +447,10 @@ export class ClassifierUI {
         webcamStop.title = supportsWebcam
             ? 'Finalizar captura de camara'
             : 'La webcam solo esta disponible con modelos del navegador';
+        this.webcamNote.hidden = supportsWebcam;
+        this.webcamNote.textContent = supportsWebcam
+            ? ''
+            : 'Camara desactivada para modelos solo imagen.';
     }
 
     updateSelectedFileName(fileName) {
@@ -364,9 +491,9 @@ export class ClassifierUI {
         this.hideLoading();
     }
 
-    setStatusMessage(message) {
+    setStatusMessage(message, className = 'empty-state') {
         const status = document.createElement('p');
-        status.className = 'empty-state';
+        status.className = className;
         status.textContent = message;
         this.resultsContainer.replaceChildren(status);
     }

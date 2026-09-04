@@ -7,10 +7,13 @@ from typing import Any
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Ejecuta inferencia YOLO y devuelve JSON.")
+    parser = argparse.ArgumentParser(description="Ejecuta inferencia Ultralytics y devuelve JSON.")
     parser.add_argument("--model", required=True)
     parser.add_argument("--image", required=True)
+    parser.add_argument("--model-id", default="")
     parser.add_argument("--conf", type=float, default=0.25)
+    parser.add_argument("--iou", type=float, default=0.7)
+    parser.add_argument("--max-det", type=int, default=300)
     parser.add_argument("--imgsz", type=int, default=640)
     return parser.parse_args()
 
@@ -25,13 +28,14 @@ def main() -> None:
     if not image_path.exists():
         raise SystemExit(f"No existe la imagen: {image_path}")
 
-    from ultralytics import YOLO
+    model = load_ultralytics_model(str(model_path), args.model_id)
 
-    model = YOLO(str(model_path))
     result = model.predict(
         source=str(image_path),
         imgsz=args.imgsz,
         conf=args.conf,
+        iou=args.iou,
+        max_det=args.max_det,
         verbose=False
     )[0]
 
@@ -39,6 +43,15 @@ def main() -> None:
         "predictions": normalize_result(result)
     }
     print(json.dumps(payload, ensure_ascii=False))
+
+
+def load_ultralytics_model(model_path: str, model_id: str = "") -> Any:
+    from ultralytics import RTDETR, YOLO
+
+    if "rtdetr" in model_id.lower() or "rtdetr" in Path(model_path).name.lower():
+        return RTDETR(model_path)
+
+    return YOLO(model_path)
 
 
 def normalize_result(result: Any) -> list[dict[str, Any]]:
@@ -77,7 +90,7 @@ def normalize_result(result: Any) -> list[dict[str, Any]]:
                 round(width, 2),
                 round(height, 2)
             ],
-            "details": f"Clase COCO #{class_id}"
+            "details": f"Clase #{class_id}"
         })
 
     return sorted(predictions, key=lambda item: item["confidence"], reverse=True)

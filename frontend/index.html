@@ -9,14 +9,16 @@
 <body>
     <div class="container">
         <header class="header">
-            <h1>Clasificador de Imagenes IA</h1>
-            <p class="subtitle">Clasifica objetos desde el navegador o desde el backend interno</p>
+            <div class="header-content">
+                <h1>Modelos de vision artificial</h1>
+                <p class="subtitle">Prueba modelos de clasificacion y deteccion con imagenes cargadas o camara en tiempo real.</p>
+            </div>
         </header>
 
         <main class="main-content">
             <div class="control-panel">
                 <div class="model-selector">
-                    <span class="model-selector-label">Modelo:</span>
+                    <span class="model-selector-label">Modelos:</span>
                     <div id="model-select" class="model-options" role="radiogroup" aria-label="Modelos disponibles"></div>
                 </div>
 
@@ -26,9 +28,10 @@
                             <div class="model-detail-badges">
                                 <span id="model-task" class="model-task">Clasificacion de imagenes</span>
                                 <span id="model-algorithm" class="model-algorithm">CNN MobileNet</span>
+                                <span id="model-status-detail" class="model-status-detail status-ready">Estado: Listo</span>
                                 <span id="model-efficiency" class="model-efficiency">Eficiencia: Rapido</span>
                             </div>
-                            <p id="model-description" class="model-description-card">Clasifica la imagen completa con etiquetas generales.</p>
+                            <div id="model-description" class="model-description-card">Clasifica la imagen completa con etiquetas generales.</div>
                         </div>
 
                         <div class="webcam-section">
@@ -38,6 +41,7 @@
                             <button id="webcam-stop" class="btn btn-secondary" disabled>
                                 <span class="btn-icon">Detener</span> Finalizar captura
                             </button>
+                            <span id="webcam-note" class="webcam-note" hidden>Camara disponible solo en modelos de tiempo real.</span>
                         </div>
                     </div>
 

@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "release_tag": "models-v1",
+  "release_name": "Modelos finales v1",
+  "description": "Manifiesto de artefactos de modelos que no se versionan en Git. Estos archivos se publican como assets de GitHub Releases y se descargan localmente cuando se prepara el backend.",
+  "assets": [
+    {
+      "model_id": "custom-yolo-v8-v11-detector",
+      "name": "YOLOv8 / YOLOv11 Detector",
+      "asset_name": "yolo-v8-v11-detector.pt",
+      "source_path": "ml/models/custom-yolo-v8-v11-detector/yolo-v8-v11-detector.pt",
+      "target_path": "ml/models/custom-yolo-v8-v11-detector/yolo-v8-v11-detector.pt",
+      "size_bytes": 5516307,
+      "sha256": "512d0c33a5f3e7b92c039b111aefbeb9507657e179646ee120dbf70990c7f396"
+    },
+    {
+      "model_id": "custom-faster-rcnn-detector",
+      "name": "Faster R-CNN Detector",
+      "asset_name": "faster-rcnn-detector.pt",
+      "source_path": "ml/models/custom-faster-rcnn-detector/faster-rcnn-detector.pt",
+      "target_path": "ml/models/custom-faster-rcnn-detector/faster-rcnn-detector.pt",
+      "size_bytes": 166120933,
+      "sha256": "f3cd994ef481b0c825a63b1e885576121e95deb6db25f25e3bfe19377c0cdf90"
+    },
+    {
+      "model_id": "custom-retinanet-detector",
+      "name": "RetinaNet Detector",
+      "asset_name": "retinanet-detector.pt",
+      "source_path": "ml/models/custom-retinanet-detector/retinanet-detector.pt",
+      "target_path": "ml/models/custom-retinanet-detector/retinanet-detector.pt",
+      "size_bytes": 130789227,
+      "sha256": "753a8e29ca854ee2694842b5d63b41190abcebe9ac26abc1e1e91652b95eb6a5"
+    },
+    {
+      "model_id": "custom-detr-rtdetr-detector",
+      "name": "DETR / RT-DETR Detector",
+      "asset_name": "rtdetr-detector.pt",
+      "source_path": "ml/models/custom-detr-rtdetr-detector/rtdetr-detector.pt",
+      "target_path": "ml/models/custom-detr-rtdetr-detector/rtdetr-detector.pt",
+      "size_bytes": 66263158,
+      "sha256": "1ff4d2b4e2e422571cf6460142ee42d67d970fc99306319481f4d6e42a90ad7a"
+    },
+    {
+      "model_id": "custom-efficientdet-detector",
+      "name": "EfficientDet Detector",
+      "asset_name": "efficientdet-detector.pt",
+      "source_path": "ml/models/custom-efficientdet-detector/efficientdet-detector.pt",
+      "target_path": "ml/models/custom-efficientdet-detector/efficientdet-detector.pt",
+      "size_bytes": 16598502,
+      "sha256": "158fc699c1750c13c3ff189f4035cbbbffa8cfd0e734dd8d9f420dcf6406e133"
+    }
+  ]
+}

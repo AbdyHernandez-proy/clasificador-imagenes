@@ -8,6 +8,7 @@ import sys
 import tempfile
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -30,10 +31,142 @@ class InferenceService:
         self._yolo_worker_lock = threading.Lock()
         self._torchvision_worker: subprocess.Popen[str] | None = None
         self._torchvision_worker_lock = threading.Lock()
+        self._efficientdet_worker: subprocess.Popen[str] | None = None
+        self._efficientdet_worker_lock = threading.Lock()
+        self._preload_lock = threading.RLock()
+        self._preload_running = False
+        self._preload_status: dict[str, Any] = {
+            "running": False,
+            "started_at": None,
+            "finished_at": None,
+            "models": []
+        }
+        self._preloaded_model_ids: set[str] = set()
 
     def close(self) -> None:
         self._stop_yolo_worker()
         self._stop_torchvision_worker()
+        self._stop_efficientdet_worker()
+
+    def get_preload_status(self) -> dict[str, Any]:
+        with self._preload_lock:
+            return {
+                "running": self._preload_status["running"],
+                "started_at": self._preload_status["started_at"],
+                "finished_at": self._preload_status["finished_at"],
+                "models": [dict(item) for item in self._preload_status["models"]]
+            }
+
+    def preload_models_async(self, model_ids: list[str] | None = None) -> dict[str, Any]:
+        with self._preload_lock:
+            if self._preload_running:
+                return self.get_preload_status()
+
+            models = self._get_preloadable_models(model_ids)
+            if not models:
+                self._preload_status = {
+                    "running": False,
+                    "started_at": self._utc_now(),
+                    "finished_at": self._utc_now(),
+                    "models": []
+                }
+                return self.get_preload_status()
+
+            self._preload_running = True
+            self._preload_status = {
+                "running": True,
+                "started_at": self._utc_now(),
+                "finished_at": None,
+                "models": [
+                    {
+                        "model_id": model.get("id"),
+                        "model_name": model.get("name", model.get("id")),
+                        "runtime": model.get("runtime"),
+                        "status": "pending",
+                        "elapsed_ms": None,
+                        "error": None
+                    }
+                    for model in models
+                ]
+            }
+
+        thread = threading.Thread(target=self._preload_models, args=(models,), daemon=True)
+        thread.start()
+        return self.get_preload_status()
+
+    def _get_preloadable_models(self, model_ids: list[str] | None = None) -> list[dict[str, Any]]:
+        allowed_ids = set(model_ids or [])
+        preloadable_runtimes = {"ultralytics", "torchvision", "effdet"}
+        models = self.registry.list_models(serving_only=True)
+
+        return [
+            model for model in models
+            if model.get("runtime") in preloadable_runtimes
+            and model.get("id") not in self._preloaded_model_ids
+            and (not allowed_ids or model.get("id") in allowed_ids)
+        ]
+
+    def _preload_models(self, models: list[dict[str, Any]]) -> None:
+        image_bytes = self._create_preload_image_bytes()
+
+        try:
+            for index, model in enumerate(models):
+                start_time = time.perf_counter()
+                self._set_preload_model_status(index, "loading")
+
+                try:
+                    self._warm_model(model, image_bytes)
+                    elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+                    self._mark_model_as_preloaded(str(model.get("id") or ""))
+                    self._set_preload_model_status(index, "ready", elapsed_ms=elapsed_ms)
+                except Exception as exc:  # noqa: BLE001 - precarga no debe tumbar el backend.
+                    elapsed_ms = round((time.perf_counter() - start_time) * 1000, 2)
+                    self._set_preload_model_status(index, "failed", elapsed_ms=elapsed_ms, error=str(exc))
+        finally:
+            with self._preload_lock:
+                self._preload_running = False
+                self._preload_status["running"] = False
+                self._preload_status["finished_at"] = self._utc_now()
+
+    def _warm_model(self, model: dict[str, Any], image_bytes: bytes) -> None:
+        runtime = model.get("runtime")
+
+        if runtime == "ultralytics":
+            pil_image = Image.open(io.BytesIO(image_bytes)).convert("RGB")
+            self._predict_ultralytics(model, pil_image, image_bytes)
+        elif runtime == "torchvision":
+            self._predict_torchvision(model, image_bytes)
+        elif runtime == "effdet":
+            self._predict_efficientdet(model, image_bytes)
+
+    def _set_preload_model_status(
+        self,
+        index: int,
+        status: str,
+        elapsed_ms: float | None = None,
+        error: str | None = None
+    ) -> None:
+        with self._preload_lock:
+            if 0 <= index < len(self._preload_status["models"]):
+                self._preload_status["models"][index]["status"] = status
+                self._preload_status["models"][index]["elapsed_ms"] = elapsed_ms
+                self._preload_status["models"][index]["error"] = error
+
+    def _mark_model_as_preloaded(self, model_id: str) -> None:
+        if not model_id:
+            return
+
+        with self._preload_lock:
+            self._preloaded_model_ids.add(model_id)
+
+    def _create_preload_image_bytes(self) -> bytes:
+        image = Image.new("RGB", (512, 512), (238, 242, 247))
+        buffer = io.BytesIO()
+        image.save(buffer, format="JPEG", quality=85)
+        return buffer.getvalue()
+
+    def _utc_now(self) -> str:
+        return datetime.utcnow().isoformat(timespec="seconds") + "Z"
 
     async def predict(self, image: UploadFile, model_id: str | None = None) -> dict[str, Any]:
         selected_model_id = model_id or self.registry.get_default_model_id()
@@ -54,11 +187,16 @@ class InferenceService:
             predictions = self._predict_ultralytics(model, pil_image, image_bytes)
         elif model.get("runtime") == "torchvision":
             predictions = self._predict_torchvision(model, image_bytes)
+        elif model.get("runtime") == "effdet":
+            predictions = self._predict_efficientdet(model, image_bytes)
         else:
             raise HTTPException(
                 status_code=501,
                 detail=f"El runtime '{model.get('runtime')}' aun no esta implementado."
             )
+
+        if model.get("runtime") in {"ultralytics", "torchvision", "effdet"}:
+            self._mark_model_as_preloaded(selected_model_id)
 
         processing_time_ms = round((time.perf_counter() - start_time) * 1000, 2)
 
@@ -144,6 +282,8 @@ class InferenceService:
     ) -> list[dict[str, Any]]:
         artifact_path = self._resolve_artifact_path(model_config)
         confidence_threshold = float(model_config.get("confidence_threshold", DEFAULT_CONFIDENCE_THRESHOLD))
+        iou_threshold = float(model_config.get("iou_threshold", model_config.get("nms_threshold", 0.7)))
+        max_detections = int(model_config.get("max_detections", model_config.get("detections_per_img", 300)))
         image_size = int(model_config.get("training", {}).get("image_size") or 640)
 
         try:
@@ -152,6 +292,8 @@ class InferenceService:
                 artifact_path=artifact_path,
                 pil_image=pil_image,
                 confidence_threshold=confidence_threshold,
+                iou_threshold=iou_threshold,
+                max_detections=max_detections,
                 image_size=image_size
             )
         except ImportError:
@@ -160,6 +302,8 @@ class InferenceService:
                 artifact_path=artifact_path,
                 image_bytes=image_bytes,
                 confidence_threshold=confidence_threshold,
+                iou_threshold=iou_threshold,
+                max_detections=max_detections,
                 image_size=image_size
             )
 
@@ -169,19 +313,23 @@ class InferenceService:
         artifact_path: Path,
         pil_image: Image.Image,
         confidence_threshold: float,
+        iou_threshold: float,
+        max_detections: int,
         image_size: int
     ) -> list[dict[str, Any]]:
-        from ultralytics import YOLO
+        from ml.inference.yolo_predict import load_ultralytics_model
 
         cache_key = str(artifact_path)
         if cache_key not in self._ultralytics_models:
-            self._ultralytics_models[cache_key] = YOLO(cache_key)
+            self._ultralytics_models[cache_key] = load_ultralytics_model(cache_key, str(model_config.get("id") or ""))
 
         model = self._ultralytics_models[cache_key]
         result = model.predict(
             source=pil_image,
             imgsz=image_size,
             conf=confidence_threshold,
+            iou=iou_threshold,
+            max_det=max_detections,
             verbose=False
         )[0]
         return self._normalize_ultralytics_result(result, model_config)
@@ -192,6 +340,8 @@ class InferenceService:
         artifact_path: Path,
         image_bytes: bytes,
         confidence_threshold: float,
+        iou_threshold: float,
+        max_detections: int,
         image_size: int
     ) -> list[dict[str, Any]]:
         runner_path = PROJECT_ROOT / "ml" / "inference" / "yolo_predict.py"
@@ -207,7 +357,10 @@ class InferenceService:
             return self._predict_ultralytics_worker(
                 artifact_path=artifact_path,
                 image_path=image_path,
+                model_id=str(model_config.get("id") or ""),
                 confidence_threshold=confidence_threshold,
+                iou_threshold=iou_threshold,
+                max_detections=max_detections,
                 image_size=image_size
             )
         except HTTPException:
@@ -217,7 +370,10 @@ class InferenceService:
                 runner_path=runner_path,
                 artifact_path=artifact_path,
                 image_path=image_path,
+                model_id=str(model_config.get("id") or ""),
                 confidence_threshold=confidence_threshold,
+                iou_threshold=iou_threshold,
+                max_detections=max_detections,
                 image_size=image_size
             )
         finally:
@@ -227,7 +383,10 @@ class InferenceService:
         self,
         artifact_path: Path,
         image_path: Path,
+        model_id: str,
         confidence_threshold: float,
+        iou_threshold: float,
+        max_detections: int,
         image_size: int
     ) -> list[dict[str, Any]]:
         worker = self._get_yolo_worker()
@@ -235,7 +394,10 @@ class InferenceService:
             "model": str(artifact_path),
             "image": str(image_path),
             "conf": confidence_threshold,
-            "imgsz": image_size
+            "iou": iou_threshold,
+            "max_det": max_detections,
+            "imgsz": image_size,
+            "model_id": model_id
         }
 
         with self._yolo_worker_lock:
@@ -266,7 +428,10 @@ class InferenceService:
         runner_path: Path,
         artifact_path: Path,
         image_path: Path,
+        model_id: str,
         confidence_threshold: float,
+        iou_threshold: float,
+        max_detections: int,
         image_size: int
     ) -> list[dict[str, Any]]:
         python_path = self._resolve_ml_python()
@@ -278,10 +443,16 @@ class InferenceService:
                     str(runner_path),
                     "--model",
                     str(artifact_path),
+                    "--model-id",
+                    model_id,
                     "--image",
                     str(image_path),
                     "--conf",
                     str(confidence_threshold),
+                    "--iou",
+                    str(iou_threshold),
+                    "--max-det",
+                    str(max_detections),
                     "--imgsz",
                     str(image_size)
                 ],
@@ -343,6 +514,7 @@ class InferenceService:
         max_detections = int(model_config.get("max_detections", 50))
         nms_threshold = float(model_config.get("nms_threshold", 0.5))
         detections_per_img = int(model_config.get("detections_per_img", max_detections))
+        image_size = int(model_config.get("training", {}).get("image_size") or 512)
 
         with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as image_file:
             image_file.write(image_bytes)
@@ -357,7 +529,8 @@ class InferenceService:
                 "conf": confidence_threshold,
                 "max_detections": max_detections,
                 "nms_threshold": nms_threshold,
-                "detections_per_img": detections_per_img
+                "detections_per_img": detections_per_img,
+                "image_size": image_size
             }
 
             with self._torchvision_worker_lock:
@@ -413,6 +586,84 @@ class InferenceService:
 
         self._torchvision_worker = None
 
+    def _predict_efficientdet(self, model_config: dict[str, Any], image_bytes: bytes) -> list[dict[str, Any]]:
+        artifact_path = self._resolve_artifact_path(model_config)
+        confidence_threshold = float(model_config.get("confidence_threshold", DEFAULT_CONFIDENCE_THRESHOLD))
+        max_detections = int(model_config.get("max_detections", model_config.get("detections_per_img", 8)))
+        image_size = int(model_config.get("training", {}).get("image_size") or 512)
+        base_model = str(model_config.get("training", {}).get("base_model") or "tf_efficientdet_d0")
+        inference_device = str(model_config.get("inference_device") or "cpu")
+
+        with tempfile.NamedTemporaryFile(suffix=".jpg", delete=False) as image_file:
+            image_file.write(image_bytes)
+            image_path = Path(image_file.name)
+
+        try:
+            worker = self._get_efficientdet_worker()
+            request = {
+                "model_id": model_config.get("id"),
+                "model": str(artifact_path),
+                "image": str(image_path),
+                "conf": confidence_threshold,
+                "max_detections": max_detections,
+                "image_size": image_size,
+                "base_model": base_model,
+                "device": inference_device
+            }
+
+            with self._efficientdet_worker_lock:
+                if worker.stdin is None or worker.stdout is None:
+                    self._stop_efficientdet_worker()
+                    raise RuntimeError("El worker EfficientDet no tiene canales de comunicacion disponibles.")
+
+                worker.stdin.write(json.dumps(request, ensure_ascii=False) + "\n")
+                worker.stdin.flush()
+                response_line = worker.stdout.readline()
+
+            if not response_line:
+                self._stop_efficientdet_worker()
+                raise RuntimeError("El worker EfficientDet no devolvio respuesta.")
+
+            response = json.loads(response_line)
+            if not response.get("ok"):
+                raise HTTPException(status_code=500, detail=f"EfficientDet worker fallo: {response.get('error', 'error desconocido')}")
+
+            predictions = response.get("predictions", [])
+            if not isinstance(predictions, list):
+                raise HTTPException(status_code=500, detail="EfficientDet worker devolvio predicciones con formato invalido.")
+
+            return predictions
+        finally:
+            image_path.unlink(missing_ok=True)
+
+    def _get_efficientdet_worker(self) -> subprocess.Popen[str]:
+        if self._efficientdet_worker and self._efficientdet_worker.poll() is None:
+            return self._efficientdet_worker
+
+        worker_path = PROJECT_ROOT / "ml" / "inference" / "efficientdet_worker.py"
+        if not worker_path.exists():
+            raise HTTPException(status_code=500, detail="No existe el worker de inferencia EfficientDet.")
+
+        self._efficientdet_worker = subprocess.Popen(
+            [str(self._resolve_ml_python()), "-u", str(worker_path)],
+            cwd=PROJECT_ROOT,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            bufsize=1
+        )
+        return self._efficientdet_worker
+
+    def _stop_efficientdet_worker(self) -> None:
+        if not self._efficientdet_worker:
+            return
+
+        if self._efficientdet_worker.poll() is None:
+            self._efficientdet_worker.terminate()
+
+        self._efficientdet_worker = None
+
     def _normalize_ultralytics_result(self, result: Any, model_config: dict[str, Any]) -> list[dict[str, Any]]:
         predictions: list[dict[str, Any]] = []
         boxes = getattr(result, "boxes", None)
@@ -450,7 +701,7 @@ class InferenceService:
                     round(width, 2),
                     round(height, 2)
                 ],
-                "details": f"Clase COCO #{class_id}"
+                "details": f"Clase #{class_id}"
             })
 
         return sorted(predictions, key=lambda item: item["confidence"], reverse=True)

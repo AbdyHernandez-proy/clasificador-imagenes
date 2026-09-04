@@ -1,3 +1,0 @@
-# Auditoria
-
-Sin incidentes activos.

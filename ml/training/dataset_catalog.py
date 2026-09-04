@@ -8,7 +8,7 @@ from ml.training.paths import DATASET_REGISTRY_PATH, PROJECT_ROOT
 
 
 def load_dataset_registry(registry_path: Path = DATASET_REGISTRY_PATH) -> dict[str, Any]:
-    with registry_path.open("r", encoding="utf-8") as registry_file:
+    with registry_path.open("r", encoding="utf-8-sig") as registry_file:
         return json.load(registry_file)
 
 

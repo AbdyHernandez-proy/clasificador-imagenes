@@ -19,19 +19,22 @@ param(
     [int]$ValidationLimit = 250,
     [double]$ValidationConfidence = -1,
     [int]$ValidationMaxDetections = 0,
+    [int]$ValidationVisualLimit = 12,
     [string]$BestMetric = "map50_95",
     [double]$MinDelta = 0.0001,
     [int]$EarlyStoppingPatience = 2,
     [string]$VenvPath = "",
     [switch]$Resume,
     [switch]$PublishPartial,
-    [switch]$ValidateEveryEpoch
+    [switch]$ValidateEveryEpoch,
+    [switch]$ValidateBeforeTraining,
+    [switch]$Install
 )
 
 $ErrorActionPreference = "Stop"
 
-$ProjectRoot = Split-Path -Parent $PSScriptRoot
-$TrainScript = Join-Path $ProjectRoot "scripts\train-local-models.ps1"
+$ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
+$TrainScript = Join-Path $ProjectRoot "scripts\training\train-local-models.ps1"
 
 $CallParams = @{
     Models = $Models
@@ -55,6 +58,7 @@ $CallParams = @{
     ValidationLimit = $ValidationLimit
     ValidationConfidence = $ValidationConfidence
     ValidationMaxDetections = $ValidationMaxDetections
+    ValidationVisualLimit = $ValidationVisualLimit
     BestMetric = $BestMetric
     MinDelta = $MinDelta
     EarlyStoppingPatience = $EarlyStoppingPatience
@@ -74,6 +78,14 @@ if ($PublishPartial) {
 
 if ($ValidateEveryEpoch) {
     $CallParams["ValidateEveryEpoch"] = $true
+}
+
+if ($ValidateBeforeTraining) {
+    $CallParams["ValidateBeforeTraining"] = $true
+}
+
+if ($Install) {
+    $CallParams["Install"] = $true
 }
 
 & $TrainScript @CallParams

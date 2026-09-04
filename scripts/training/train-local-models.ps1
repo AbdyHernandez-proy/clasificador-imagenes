@@ -20,6 +20,7 @@ param(
     [int]$ValidationLimit = 250,
     [double]$ValidationConfidence = -1,
     [int]$ValidationMaxDetections = 0,
+    [int]$ValidationVisualLimit = 12,
     [string]$BestMetric = "map50_95",
     [double]$MinDelta = 0.0001,
     [int]$EarlyStoppingPatience = 0,
@@ -27,17 +28,26 @@ param(
     [switch]$Resume,
     [switch]$PublishPartial,
     [switch]$ValidateEveryEpoch,
+    [switch]$ValidateBeforeTraining,
     [switch]$AllowEfficientDet,
-    [switch]$Install
+    [string]$EfficientDetBaseModel = "tf_efficientdet_d0",
+    [switch]$EfficientDetPretrainedBackbone,
+    [switch]$Install,
+    [switch]$InstallOnly
 )
 
 $ErrorActionPreference = "Stop"
 
-$ProjectRoot = Split-Path -Parent $PSScriptRoot
+$ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 if (-not $VenvPath) {
     $VenvPath = Join-Path $env:USERPROFILE ".ciml\venv"
 }
 $PythonPath = Join-Path $VenvPath "Scripts\python.exe"
+$CacheRoot = Join-Path $VenvPath "cache"
+$env:HF_HOME = Join-Path $CacheRoot "huggingface"
+$env:TORCH_HOME = Join-Path $CacheRoot "torch"
+$env:ULTRALYTICS_SETTINGS = Join-Path $CacheRoot "ultralytics"
+New-Item -ItemType Directory -Force -Path $env:HF_HOME, $env:TORCH_HOME, $env:ULTRALYTICS_SETTINGS | Out-Null
 
 Set-Location $ProjectRoot
 
@@ -65,13 +75,28 @@ if ($Install) {
     & $PythonPath -m pip install ultralytics
     if ($LASTEXITCODE -ne 0) { throw "No se pudo instalar Ultralytics." }
 
+    if ($Models -match "(^|,)\s*(efficientdet)" -or $Models -eq "all") {
+        & $PythonPath -m pip install effdet timm pycocotools
+        if ($LASTEXITCODE -ne 0) { throw "No se pudieron instalar dependencias EfficientDet." }
+    }
+
     Write-Host "Dependencias instaladas y verificadas."
+    if ($InstallOnly) {
+        return
+    }
 }
 
 if ($Models -match "(^|,)\s*(yolo|rtdetr|detr)" ) {
     & $PythonPath -c "import ultralytics" 2>$null
     if ($LASTEXITCODE -ne 0) {
-        throw "Falta Ultralytics en el entorno ML. Ejecuta: .\scripts\train-local-models.ps1 -Install -Models yolo"
+        throw "Falta Ultralytics en el entorno ML. Ejecuta: .\scripts\training\train-local-models.ps1 -Install -Models yolo"
+    }
+}
+
+if ($Models -match "(^|,)\s*(efficientdet)" -or $Models -eq "all") {
+    & $PythonPath -c "import effdet, timm, pycocotools" 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        throw "Faltan dependencias EfficientDet. Ejecuta: .\scripts\training\train-local-models.ps1 -Install -Models efficientdet"
     }
 }
 
@@ -98,9 +123,11 @@ $ArgsList = @(
     "--validation-limit", "$ValidationLimit",
     "--validation-confidence", "$ValidationConfidence",
     "--validation-max-detections", "$ValidationMaxDetections",
+    "--validation-visual-limit", "$ValidationVisualLimit",
     "--best-metric", $BestMetric,
     "--min-delta", "$MinDelta",
-    "--early-stopping-patience", "$EarlyStoppingPatience"
+    "--early-stopping-patience", "$EarlyStoppingPatience",
+    "--efficientdet-base-model", $EfficientDetBaseModel
 )
 
 if ($Resume) {
@@ -115,8 +142,16 @@ if ($ValidateEveryEpoch) {
     $ArgsList += "--validate-every-epoch"
 }
 
+if ($ValidateBeforeTraining) {
+    $ArgsList += "--validate-before-training"
+}
+
 if ($AllowEfficientDet) {
     $ArgsList += "--allow-efficientdet"
+}
+
+if ($EfficientDetPretrainedBackbone) {
+    $ArgsList += "--efficientdet-pretrained-backbone"
 }
 
 $env:PYTHONUNBUFFERED = "1"

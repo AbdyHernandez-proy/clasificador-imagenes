@@ -1,31 +1,66 @@
 {
-  "id": "custom-retinanet-detector",
-  "name": "RetinaNet Detector",
-  "architecture_family": "RetinaNet",
-  "framework": "torchvision",
-  "task": "object_detection",
-  "status": "scaffold",
-  "default_dataset_id": "voc-detect",
-  "compatible_dataset_formats": [
-    "yolo",
-    "voc_masks"
-  ],
-  "compatible_dataset_tasks": [
-    "object_detection",
-    "object_detection_segmentation"
-  ],
-  "target_class_set": "voc20",
-  "target_class_count": 20,
-  "target_classes_path": "ml/datasets/registry.json#voc-detect.classes",
-  "target_description": "Detecta las 20 clases de PASCAL VOC: personas, vehiculos, animales, muebles y objetos comunes.",
-  "artifact_path": "ml/models/custom-retinanet-detector/model.pt",
-  "suggested_base_weights": [
-    "retinanet_resnet50_fpn"
-  ],
-  "recommended_for": [
-    "clases desbalanceadas",
-    "objetos pequenos o dificiles",
-    "comparacion contra Faster R-CNN con el mismo dataset VOC"
-  ],
-  "notes": "Configurado para entrenar por lotes con voc-detect usando scripts/train-voc-managed.ps1, checkpoints en ml/models/custom-retinanet-detector/checkpoints y seguimiento con scripts/show-training-progress.ps1."
+    "id":  "custom-retinanet-detector",
+    "name":  "RetinaNet Detector",
+    "architecture_family":  "RetinaNet",
+    "framework":  "torchvision",
+    "task":  "object_detection",
+    "status":  "trainable_local",
+    "default_dataset_id":  "voc-detect",
+    "compatible_dataset_formats":  [
+                                       "yolo",
+                                       "voc_masks"
+                                   ],
+    "compatible_dataset_tasks":  [
+                                     "object_detection",
+                                     "object_detection_segmentation"
+                                 ],
+    "target_class_set":  "voc20",
+    "target_class_count":  20,
+    "target_classes_path":  "ml/datasets/registry.json#voc-detect.classes",
+    "target_description":  "Detecta las 20 clases de PASCAL VOC: personas, vehiculos, animales, muebles y objetos comunes.",
+    "artifact_path":  "ml/models/custom-retinanet-detector/retinanet-detector.pt",
+    "training_plan":  {
+                          "dataset_id":  "voc-detect",
+                          "split":  {
+                                        "train":  "splits/train.txt",
+                                        "val":  "splits/val.txt",
+                                        "train_images":  12902,
+                                        "val_images":  8601,
+                                        "train_ratio":  0.6,
+                                        "val_ratio":  0.4
+                                    },
+                          "epochs":  6,
+                          "batch":  1,
+                          "image_size":  512,
+                          "device":  "auto",
+                          "workers":  0,
+                          "session_samples":  1024,
+                          "session_count":  64,
+                          "log_every":  10,
+                          "checkpoint_every":  25,
+                          "learning_rate":  0.0005,
+                          "momentum":  0.9,
+                          "weight_decay":  0.0005,
+                          "lr_step_size":  2,
+                          "lr_gamma":  0.5,
+                          "freeze_backbone_epochs":  1,
+                          "validation_limit":  500,
+                          "validation_confidence":  0.6,
+                          "validation_max_detections":  8,
+                          "validation_visual_limit":  16,
+                          "best_metric":  "precision_at_50",
+                          "min_delta":  0.0005,
+                          "early_stopping_patience":  3,
+                          "publish_partial":  true,
+                          "validate_every_epoch":  true
+                      },
+    "suggested_base_weights":  [
+                                   "retinanet_resnet50_fpn"
+                               ],
+    "recommended_for":  [
+                            "clases desbalanceadas",
+                            "objetos pequenos o dificiles",
+                            "comparacion contra Faster R-CNN con el mismo dataset VOC"
+                        ],
+    "notes":  "Version final de despliegue: se conserva solo el artefacto final con nombre del modelo. Historiales, checkpoints y salidas visuales temporales se eliminan tras consolidar metricas en docs y registry."
 }

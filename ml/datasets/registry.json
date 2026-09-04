@@ -1,215 +1,186 @@
 {
-  "schema_version": 1,
-  "storage_root": "ml/datasets",
-  "datasets": [
-    {
-      "id": "custom-local-v1",
-      "name": "Dataset local personalizado",
-      "task": "custom",
-      "format": "pending",
-      "status": "template",
-      "source": {
-        "type": "internal",
-        "homepage": null,
-        "license": "Propia del proyecto"
-      },
-      "description": "Entrada reservada para datasets creados manualmente dentro del proyecto.",
-      "recommended_use": "Guardar aqui datasets propios antes de convertirlos a clasificacion, deteccion o segmentacion."
-    },
-    {
-      "id": "coco8-detect",
-      "name": "COCO8",
-      "task": "object_detection",
-      "format": "yolo",
-      "status": "downloaded",
-      "size_mb": 1,
-      "class_count": 80,
-      "source": {
-        "type": "public_dataset",
-        "homepage": "https://docs.ultralytics.com/datasets/detect/coco8/",
-        "license": "COCO terms of use; Ultralytics dataset metadata/package uses AGPL-3.0"
-      },
-      "download": {
-        "url": "https://github.com/ultralytics/assets/releases/download/v0.0.0/coco8.zip",
-        "archive_type": "zip"
-      },
-      "splits": {
-        "train": "images/train",
-        "val": "images/val"
-      },
-      "compatible_model_ids": [
-        "custom-yolo-v8-v11-detector",
-        "custom-faster-rcnn-detector",
-        "custom-efficientdet-detector",
-        "custom-retinanet-detector",
-        "custom-detr-rtdetr-detector"
-      ],
-      "description": "Mini dataset de deteccion con 8 imagenes en formato YOLO. Sirve para probar que el pipeline de descarga, lectura y entrenamiento funciona antes de usar datasets mas grandes.",
-      "recommended_use": "Pruebas rapidas de estructura, validacion y scripts de entrenamiento.",
-      "local_path": "ml/datasets/raw/coco8-detect",
-      "archive_path": "ml/datasets/downloads/coco8-detect.zip",
-      "downloaded_at": "2026-08-21T23:10:56.723476+00:00",
-      "dataset_path": "ml/datasets/raw/coco8-detect/coco8"
-    },
-    {
-      "id": "coco128-detect",
-      "name": "COCO128",
-      "task": "object_detection",
-      "format": "yolo",
-      "status": "downloaded",
-      "size_mb": 7,
-      "class_count": 80,
-      "source": {
-        "type": "public_dataset",
-        "homepage": "https://docs.ultralytics.com/datasets/detect/coco128/",
-        "license": "COCO terms of use; Ultralytics dataset metadata/package uses AGPL-3.0"
-      },
-      "download": {
-        "url": "https://github.com/ultralytics/assets/releases/download/v0.0.0/coco128.zip",
-        "archive_type": "zip"
-      },
-      "splits": {
-        "train": "images/train2017",
-        "val": "images/train2017"
-      },
-      "compatible_model_ids": [
-        "custom-yolo-v8-v11-detector",
-        "custom-faster-rcnn-detector",
-        "custom-efficientdet-detector",
-        "custom-retinanet-detector",
-        "custom-detr-rtdetr-detector"
-      ],
-      "description": "Dataset pequeno de deteccion con las primeras 128 imagenes de COCO train2017 y etiquetas YOLO.",
-      "recommended_use": "Sanity check mas realista para deteccion de objetos antes de entrenar con datos propios.",
-      "local_path": "ml/datasets/raw/coco128-detect",
-      "archive_path": "ml/datasets/downloads/coco128-detect.zip",
-      "downloaded_at": "2026-08-21T23:10:57.017635+00:00",
-      "dataset_path": "ml/datasets/raw/coco128-detect/coco128"
-    },
-    {
-      "id": "penn-fudan-pedestrian",
-      "name": "Penn-Fudan Pedestrian",
-      "task": "object_detection_segmentation",
-      "format": "voc_masks",
-      "status": "available_remote",
-      "size_mb": 54,
-      "class_count": 1,
-      "classes": [
-        "pedestrian"
-      ],
-      "source": {
-        "type": "public_dataset",
-        "homepage": "https://www.cis.upenn.edu/~jshi/ped_html/",
-        "license": "Revisar terminos del dataset original antes de uso comercial"
-      },
-      "download": {
-        "url": "https://www.cis.upenn.edu/~jshi/ped_html/PennFudanPed.zip",
-        "archive_type": "zip"
-      },
-      "splits": {
-        "images": "PNGImages",
-        "annotations": "Annotation",
-        "masks": "PedMasks"
-      },
-      "compatible_model_ids": [
-        "custom-faster-rcnn-detector",
-        "custom-retinanet-detector"
-      ],
-      "description": "Dataset pequeno de peatones con cajas y mascaras. Es util para practicar deteccion y segmentacion de una sola clase.",
-      "recommended_use": "Entrenamiento inicial de detector especializado de personas/peatones."
-    },
-    {
-      "id": "oxford-iiit-pets",
-      "name": "Oxford-IIIT Pet",
-      "task": "classification_segmentation",
-      "format": "images_annotations_trimaps",
-      "status": "available_remote_large",
-      "size_mb": 800,
-      "class_count": 37,
-      "source": {
-        "type": "public_dataset",
-        "homepage": "https://www.robots.ox.ac.uk/~vgg/data/pets/",
-        "license": "Revisar terminos del dataset original antes de uso comercial"
-      },
-      "download": {
-        "url": "https://www.robots.ox.ac.uk/~vgg/data/pets/data/images.tar.gz",
-        "annotations_url": "https://www.robots.ox.ac.uk/~vgg/data/pets/data/annotations.tar.gz",
-        "archive_type": "tar.gz"
-      },
-      "description": "Dataset de 37 razas de mascotas con imagenes, ROI de cabeza y segmentacion. Es grande para este repositorio, por eso queda registrado pero no se descarga por defecto.",
-      "recommended_use": "Clasificacion personalizada y pruebas de segmentacion cuando ya exista pipeline de entrenamiento."
-    },
-    {
-      "id": "voc-detect",
-      "name": "PASCAL VOC",
-      "task": "object_detection",
-      "format": "yolo",
-      "status": "downloaded",
-      "size_mb": 2800,
-      "class_count": 20,
-      "classes": [
-        "aeroplane",
-        "bicycle",
-        "bird",
-        "boat",
-        "bottle",
-        "bus",
-        "car",
-        "cat",
-        "chair",
-        "cow",
-        "diningtable",
-        "dog",
-        "horse",
-        "motorbike",
-        "person",
-        "pottedplant",
-        "sheep",
-        "sofa",
-        "train",
-        "tvmonitor"
-      ],
-      "source": {
-        "type": "public_dataset",
-        "homepage": "https://docs.ultralytics.com/datasets/detect/voc/",
-        "license": "PASCAL VOC terms; conversion/download metadata follows Ultralytics assets/config."
-      },
-      "download": {
-        "urls": [
-          "https://github.com/ultralytics/assets/releases/download/v0.0.0/VOCtrainval_06-Nov-2007.zip",
-          "https://github.com/ultralytics/assets/releases/download/v0.0.0/VOCtest_06-Nov-2007.zip",
-          "https://github.com/ultralytics/assets/releases/download/v0.0.0/VOCtrainval_11-May-2012.zip"
-        ],
-        "archive_type": "zip"
-      },
-      "splits": {
-        "train": "splits/train.txt",
-        "val": "splits/val.txt"
-      },
-      "compatible_model_ids": [
-        "custom-yolo-v8-v11-detector",
-        "custom-faster-rcnn-detector",
-        "custom-retinanet-detector"
-      ],
-      "description": "Dataset PASCAL VOC convertido a formato YOLO para deteccion general de 20 clases comunes.",
-      "recommended_use": "Siguiente fase de entrenamiento para Faster R-CNN y RetinaNet antes de datasets mas grandes como COCO completo.",
-      "local_path": "ml/datasets/raw/voc-detect",
-      "dataset_path": "ml/datasets/raw/voc-detect/VOC",
-      "archive_paths": [
-        "ml/datasets/downloads/VOCtrainval_06-Nov-2007.zip",
-        "ml/datasets/downloads/VOCtest_06-Nov-2007.zip",
-        "ml/datasets/downloads/VOCtrainval_11-May-2012.zip"
-      ],
-      "downloaded_at": "2026-08-22T03:24:19.882549+00:00",
-      "summary": {
-        "dataset_id": "voc-detect",
-        "classes": 20,
-        "train_images": 16551,
-        "val_images": 4952,
-        "labels": 21503,
-        "boxes": 52090,
-        "dataset_path": "ml/datasets/raw/voc-detect/VOC"
-      }
-    }
-  ]
+    "schema_version":  1,
+    "storage_root":  "ml/datasets",
+    "datasets":  [
+                     {
+                         "id":  "coco8-detect",
+                         "name":  "COCO8",
+                         "task":  "object_detection",
+                         "format":  "yolo",
+                         "status":  "available_remote",
+                         "size_mb":  1,
+                         "class_count":  80,
+                         "source":  {
+                                        "type":  "public_dataset",
+                                        "homepage":  "https://docs.ultralytics.com/datasets/detect/coco8/",
+                                        "license":  "COCO terms of use; Ultralytics dataset metadata/package uses AGPL-3.0"
+                                    },
+                         "download":  {
+                                          "url":  "https://github.com/ultralytics/assets/releases/download/v0.0.0/coco8.zip",
+                                          "archive_type":  "zip"
+                                      },
+                         "splits":  {
+                                        "train":  "images/train",
+                                        "val":  "images/val"
+                                    },
+                         "compatible_model_ids":  [
+                                                      "custom-yolo-v8-v11-detector",
+                                                      "custom-faster-rcnn-detector",
+                                                      "custom-efficientdet-detector",
+                                                      "custom-retinanet-detector",
+                                                      "custom-detr-rtdetr-detector"
+                                                  ],
+                         "description":  "Mini dataset de deteccion con 8 imagenes en formato YOLO. Sirve para probar que el pipeline de descarga, lectura y entrenamiento funciona antes de usar datasets mas grandes.",
+                         "recommended_use":  "Pruebas rapidas de estructura, validacion y scripts de entrenamiento.",
+                         "local_path":  "ml/datasets/raw/coco8-detect",
+                         "dataset_path":  "ml/datasets/raw/coco8-detect/coco8"
+                     },
+                     {
+                         "id":  "coco128-detect",
+                         "name":  "COCO128",
+                         "task":  "object_detection",
+                         "format":  "yolo",
+                         "status":  "available_remote",
+                         "size_mb":  7,
+                         "class_count":  80,
+                         "source":  {
+                                        "type":  "public_dataset",
+                                        "homepage":  "https://docs.ultralytics.com/datasets/detect/coco128/",
+                                        "license":  "COCO terms of use; Ultralytics dataset metadata/package uses AGPL-3.0"
+                                    },
+                         "download":  {
+                                          "url":  "https://github.com/ultralytics/assets/releases/download/v0.0.0/coco128.zip",
+                                          "archive_type":  "zip"
+                                      },
+                         "splits":  {
+                                        "train":  "images/train2017",
+                                        "val":  "images/train2017"
+                                    },
+                         "compatible_model_ids":  [
+                                                      "custom-yolo-v8-v11-detector",
+                                                      "custom-faster-rcnn-detector",
+                                                      "custom-efficientdet-detector",
+                                                      "custom-retinanet-detector",
+                                                      "custom-detr-rtdetr-detector"
+                                                  ],
+                         "description":  "Dataset pequeno de deteccion con las primeras 128 imagenes de COCO train2017 y etiquetas YOLO.",
+                         "recommended_use":  "Sanity check mas realista para deteccion de objetos antes de entrenar con datos propios.",
+                         "local_path":  "ml/datasets/raw/coco128-detect",
+                         "dataset_path":  "ml/datasets/raw/coco128-detect/coco128"
+                     },
+                     {
+                         "id":  "penn-fudan-pedestrian",
+                         "name":  "Penn-Fudan Pedestrian",
+                         "task":  "object_detection_segmentation",
+                         "format":  "voc_masks",
+                         "status":  "available_remote",
+                         "size_mb":  54,
+                         "class_count":  1,
+                         "classes":  [
+                                         "pedestrian"
+                                     ],
+                         "source":  {
+                                        "type":  "public_dataset",
+                                        "homepage":  "https://www.cis.upenn.edu/~jshi/ped_html/",
+                                        "license":  "Revisar terminos del dataset original antes de uso comercial"
+                                    },
+                         "download":  {
+                                          "url":  "https://www.cis.upenn.edu/~jshi/ped_html/PennFudanPed.zip",
+                                          "archive_type":  "zip"
+                                      },
+                         "splits":  {
+                                        "images":  "PNGImages",
+                                        "annotations":  "Annotation",
+                                        "masks":  "PedMasks"
+                                    },
+                         "compatible_model_ids":  [
+                                                      "custom-faster-rcnn-detector",
+                                                      "custom-retinanet-detector"
+                                                  ],
+                         "description":  "Dataset pequeno de peatones con cajas y mascaras. Es util para practicar deteccion y segmentacion de una sola clase.",
+                         "recommended_use":  "Entrenamiento inicial de detector especializado de personas/peatones."
+                     },
+                     {
+                         "id":  "oxford-iiit-pets",
+                         "name":  "Oxford-IIIT Pet",
+                         "task":  "classification_segmentation",
+                         "format":  "images_annotations_trimaps",
+                         "status":  "available_remote_large",
+                         "size_mb":  800,
+                         "class_count":  37,
+                         "source":  {
+                                        "type":  "public_dataset",
+                                        "homepage":  "https://www.robots.ox.ac.uk/~vgg/data/pets/",
+                                        "license":  "Revisar terminos del dataset original antes de uso comercial"
+                                    },
+                         "download":  {
+                                          "url":  "https://www.robots.ox.ac.uk/~vgg/data/pets/data/images.tar.gz",
+                                          "annotations_url":  "https://www.robots.ox.ac.uk/~vgg/data/pets/data/annotations.tar.gz",
+                                          "archive_type":  "tar.gz"
+                                      },
+                         "description":  "Dataset de 37 razas de mascotas con imagenes, ROI de cabeza y segmentacion. Es grande para este repositorio, por eso queda registrado pero no se descarga por defecto.",
+                         "recommended_use":  "Clasificacion personalizada y pruebas de segmentacion cuando ya exista pipeline de entrenamiento."
+                     },
+                     {
+                         "id":  "voc-detect",
+                         "name":  "PASCAL VOC",
+                         "task":  "object_detection",
+                         "format":  "yolo",
+                         "status":  "available_remote",
+                         "size_mb":  2800,
+                         "class_count":  20,
+                         "classes":  [
+                                         "aeroplane",
+                                         "bicycle",
+                                         "bird",
+                                         "boat",
+                                         "bottle",
+                                         "bus",
+                                         "car",
+                                         "cat",
+                                         "chair",
+                                         "cow",
+                                         "diningtable",
+                                         "dog",
+                                         "horse",
+                                         "motorbike",
+                                         "person",
+                                         "pottedplant",
+                                         "sheep",
+                                         "sofa",
+                                         "train",
+                                         "tvmonitor"
+                                     ],
+                         "source":  {
+                                        "type":  "public_dataset",
+                                        "homepage":  "https://docs.ultralytics.com/datasets/detect/voc/",
+                                        "license":  "PASCAL VOC terms; conversion/download metadata follows Ultralytics assets/config."
+                                    },
+                         "download":  {
+                                          "urls":  [
+                                                       "https://github.com/ultralytics/assets/releases/download/v0.0.0/VOCtrainval_06-Nov-2007.zip",
+                                                       "https://github.com/ultralytics/assets/releases/download/v0.0.0/VOCtest_06-Nov-2007.zip",
+                                                       "https://github.com/ultralytics/assets/releases/download/v0.0.0/VOCtrainval_11-May-2012.zip"
+                                                   ],
+                                          "archive_type":  "zip"
+                                      },
+                         "splits":  {
+                                        "train":  "splits/train.txt",
+                                        "val":  "splits/val.txt",
+                                        "official_train":  "splits/official_train.txt",
+                                        "official_val":  "splits/official_val.txt"
+                                    },
+                         "compatible_model_ids":  [
+                                                      "custom-yolo-v8-v11-detector",
+                                                      "custom-faster-rcnn-detector",
+                                                      "custom-retinanet-detector",
+                                                      "custom-efficientdet-detector",
+                                                      "custom-detr-rtdetr-detector"
+                                                  ],
+                         "description":  "Dataset PASCAL VOC convertido a formato YOLO para deteccion general de 20 clases comunes. El split activo usa 60% entrenamiento y 40% validacion; los splits oficiales se conservan como referencia.",
+                         "recommended_use":  "Siguiente fase de entrenamiento para Faster R-CNN y RetinaNet antes de datasets mas grandes como COCO completo.",
+                         "local_path":  "ml/datasets/raw/voc-detect",
+                         "dataset_path":  "ml/datasets/raw/voc-detect/VOC"
+                     }
+                 ]
 }

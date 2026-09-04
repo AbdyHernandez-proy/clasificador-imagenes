@@ -17,6 +17,7 @@ ml/datasets/raw/
 ml/datasets/processed/
 ml/models/
 ml/runs/
+runs/
 !ml/datasets/registry.json
 !ml/registry.json
 
@@ -36,6 +37,7 @@ ml/runs/
 # Archivos temporales
 *.tmp
 *.temp
+*.log
 .cache
 .pytest_cache/
 
@@ -46,12 +48,14 @@ Thumbs.db
 # Evaluaciones locales generadas
 ml/evaluation/voc-validation-*/
 ml/evaluation/internet-smoke-*/
+ml/evaluation/manual-predictions/
+ml/evaluation/threshold-calibration-*/
 ml/evaluation/__pycache__/
 ml/evaluation/*.md
-!ml/evaluation/validate_torchvision_detectors.py
 
 # Pesos descargados en raiz por pruebas locales
 yolo*.pt
+rtdetr*.pt
 
 # Caches locales de datasets
 ml/datasets/**/.cache/

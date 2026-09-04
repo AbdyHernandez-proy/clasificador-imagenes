@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import random
 import urllib.request
 import zipfile
 from datetime import datetime, timezone
@@ -55,12 +56,17 @@ SPLITS = [
     ("2007", "test", "val"),
 ]
 
+DEFAULT_TRAIN_RATIO = 0.60
+DEFAULT_SPLIT_SEED = 20260827
+
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Descarga y prepara PASCAL VOC en formato YOLO.")
     parser.add_argument("--dataset-id", default="voc-detect")
     parser.add_argument("--force", action="store_true", help="Recrea conversion/splits aunque ya existan.")
     parser.add_argument("--skip-download", action="store_true", help="Usa archivos ya descargados en ml/datasets/downloads.")
+    parser.add_argument("--train-ratio", type=float, default=DEFAULT_TRAIN_RATIO, help="Proporcion de imagenes etiquetadas para entrenamiento.")
+    parser.add_argument("--split-seed", type=int, default=DEFAULT_SPLIT_SEED, help="Semilla reproducible para dividir train/val.")
     return parser.parse_args()
 
 
@@ -73,7 +79,12 @@ def main() -> None:
 
     archives = download_archives(downloads_root, skip_download=args.skip_download)
     extract_archives(archives, dataset_root)
-    summary = convert_voc_to_yolo(dataset_root, force=args.force)
+    summary = convert_voc_to_yolo(
+        dataset_root=dataset_root,
+        force=args.force,
+        train_ratio=args.train_ratio,
+        split_seed=args.split_seed,
+    )
     update_dataset_registry(args.dataset_id, dataset_root, archives, summary)
 
     print(json.dumps(summary, ensure_ascii=False, indent=2))
@@ -118,10 +129,15 @@ def safe_extract_zip(archive: zipfile.ZipFile, target_path: Path) -> None:
     archive.extractall(target_path)
 
 
-def convert_voc_to_yolo(dataset_root: Path, force: bool) -> dict[str, Any]:
+def convert_voc_to_yolo(dataset_root: Path, force: bool, train_ratio: float, split_seed: int) -> dict[str, Any]:
+    if not 0.0 < train_ratio < 1.0:
+        raise ValueError("--train-ratio debe estar entre 0 y 1.")
+
     split_files = {
         "train": dataset_root / "splits" / "train.txt",
         "val": dataset_root / "splits" / "val.txt",
+        "official_train": dataset_root / "splits" / "official_train.txt",
+        "official_val": dataset_root / "splits" / "official_val.txt",
     }
     if not force and all(path.exists() for path in split_files.values()):
         return summarize_prepared_dataset(dataset_root)
@@ -129,7 +145,7 @@ def convert_voc_to_yolo(dataset_root: Path, force: bool) -> dict[str, Any]:
     for path in split_files.values():
         path.parent.mkdir(parents=True, exist_ok=True)
 
-    split_images: dict[str, list[str]] = {"train": [], "val": []}
+    official_split_images: dict[str, list[str]] = {"train": [], "val": []}
     total_labels = 0
     total_boxes = 0
 
@@ -148,16 +164,34 @@ def convert_voc_to_yolo(dataset_root: Path, force: bool) -> dict[str, Any]:
             box_count = convert_annotation(annotation_path, label_path)
             total_labels += 1
             total_boxes += box_count
-            split_images[output_split].append(relative_project_path(image_path, dataset_root))
+            official_split_images[output_split].append(relative_project_path(image_path, dataset_root))
+
+    for split_name, images in official_split_images.items():
+        split_files[f"official_{split_name}"].write_text("\n".join(sorted(images)) + "\n", encoding="utf-8")
+
+    all_images = sorted(set(official_split_images["train"] + official_split_images["val"]))
+    shuffled_images = all_images.copy()
+    random.Random(split_seed).shuffle(shuffled_images)
+    train_count = round(len(shuffled_images) * train_ratio)
+    split_images = {
+        "train": sorted(shuffled_images[:train_count]),
+        "val": sorted(shuffled_images[train_count:]),
+    }
 
     for split_name, images in split_images.items():
-        split_files[split_name].write_text("\n".join(sorted(images)) + "\n", encoding="utf-8")
+        split_files[split_name].write_text("\n".join(images) + "\n", encoding="utf-8")
 
     return {
         "dataset_id": "voc-detect",
         "classes": len(VOC_CLASSES),
         "train_images": len(split_images["train"]),
         "val_images": len(split_images["val"]),
+        "total_images": len(all_images),
+        "train_ratio": train_ratio,
+        "val_ratio": 1.0 - train_ratio,
+        "split_seed": split_seed,
+        "official_train_images": len(official_split_images["train"]),
+        "official_val_images": len(official_split_images["val"]),
         "labels": total_labels,
         "boxes": total_boxes,
         "dataset_path": relative_project_path(dataset_root, PROJECT_ROOT),
@@ -233,11 +267,21 @@ def voc_box_to_yolo(
 def summarize_prepared_dataset(dataset_root: Path) -> dict[str, Any]:
     train_path = dataset_root / "splits" / "train.txt"
     val_path = dataset_root / "splits" / "val.txt"
+    official_train_path = dataset_root / "splits" / "official_train.txt"
+    official_val_path = dataset_root / "splits" / "official_val.txt"
+    train_images = count_lines(train_path)
+    val_images = count_lines(val_path)
+    total_images = train_images + val_images
     return {
         "dataset_id": "voc-detect",
         "classes": len(VOC_CLASSES),
-        "train_images": count_lines(train_path),
-        "val_images": count_lines(val_path),
+        "train_images": train_images,
+        "val_images": val_images,
+        "total_images": total_images,
+        "train_ratio": round(train_images / total_images, 4) if total_images else None,
+        "val_ratio": round(val_images / total_images, 4) if total_images else None,
+        "official_train_images": count_lines(official_train_path),
+        "official_val_images": count_lines(official_val_path),
         "dataset_path": relative_project_path(dataset_root, PROJECT_ROOT),
         "status": "already_prepared",
     }
@@ -275,13 +319,17 @@ def update_dataset_registry(
         "splits": {
             "train": "splits/train.txt",
             "val": "splits/val.txt",
+            "official_train": "splits/official_train.txt",
+            "official_val": "splits/official_val.txt",
         },
         "compatible_model_ids": [
             "custom-yolo-v8-v11-detector",
             "custom-faster-rcnn-detector",
             "custom-retinanet-detector",
+            "custom-efficientdet-detector",
+            "custom-detr-rtdetr-detector",
         ],
-        "description": "Dataset PASCAL VOC convertido a formato YOLO para deteccion general de 20 clases comunes.",
+        "description": "Dataset PASCAL VOC convertido a formato YOLO para deteccion general de 20 clases comunes. El split activo usa 60% entrenamiento y 40% validacion; los splits oficiales se conservan como referencia.",
         "recommended_use": "Siguiente fase de entrenamiento para Faster R-CNN y RetinaNet antes de datasets mas grandes como COCO completo.",
         "local_path": relative_project_path(dataset_root.parent, PROJECT_ROOT),
         "dataset_path": relative_project_path(dataset_root, PROJECT_ROOT),

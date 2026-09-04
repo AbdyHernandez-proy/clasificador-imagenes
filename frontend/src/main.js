@@ -2,8 +2,26 @@ import { ClassifierApiClient } from './apiClient.js';
 import { requireElementById, requireSelector } from './dom.js';
 import { ClassifierUI } from './ui.js';
 import { ImageProcessor } from './imageProcessor.js';
-import { BROWSER_MODELS } from './modelCatalog.js';
+import { BROWSER_MODELS, CUSTOM_MODEL_SLOTS } from './modelCatalog.js';
 import { ModelManager } from './modelManager.js';
+
+const CONNECTABLE_BACKEND_STATUSES = new Set(['ready', 'trained']);
+
+const MODEL_STATUS_LABELS = {
+    ready: 'Listo',
+    trained: 'Entrenado',
+    training: 'Entrenando',
+    partial: 'Parcial',
+    planned: 'Planificado',
+    failed: 'Con error',
+    unavailable: 'No disponible'
+};
+
+const TASK_LABELS = {
+    object_detection: 'Deteccion de objetos',
+    image_classification: 'Clasificacion de imagenes',
+    image_profile_classification: 'Perfil visual'
+};
 
 class ImageClassifier {
     constructor() {
@@ -11,7 +29,7 @@ class ImageClassifier {
         this.imageProcessor = new ImageProcessor();
         this.modelManager = new ModelManager();
         this.apiClient = new ClassifierApiClient();
-        this.availableModels = [...BROWSER_MODELS];
+        this.availableModels = this.buildModelCatalog();
         this.currentModelInfo = BROWSER_MODELS[0];
         this.currentModel = null;
         this.webcamActive = false;
@@ -33,6 +51,7 @@ class ImageClassifier {
             this.setupEventListeners();
             await this.loadSelectedModel(this.currentModelInfo);
             this.ui.updateModelStatus('Listo');
+            this.preloadImageOnlyModels();
         } catch (error) {
             console.error('Error al inicializar:', error);
             this.ui.updateModelStatus('Error al cargar modelo');
@@ -41,28 +60,156 @@ class ImageClassifier {
     }
 
     async loadBackendModels() {
-        try {
-            const response = await this.apiClient.listModels();
-            const backendModels = (response.models || []).map((model) => ({
-                id: `backend:${model.id}`,
-                backendId: model.id,
-                name: model.name || model.id,
-                usageLabel: model.task || 'Backend',
-                runtime: 'backend',
-                modelType: model.task || 'backend',
-                supportsWebcam: false,
-                task: model.task || 'Inferencia backend',
-                algorithm: model.runtime || 'backend',
-                efficiency: model.efficiency || 'Medio',
-                description: model.description || 'Modelo registrado en el backend interno.',
-                metadata: model
-            }));
+        const servedModelsResult = await Promise.allSettled([
+            this.apiClient.listModels(),
+            this.apiClient.listModelRegistry()
+        ]);
+        const modelsResponse = servedModelsResult[0].status === 'fulfilled' ? servedModelsResult[0].value : null;
+        const registryResponse = servedModelsResult[1].status === 'fulfilled' ? servedModelsResult[1].value : null;
 
-            this.availableModels = [...BROWSER_MODELS, ...backendModels];
-        } catch (error) {
-            console.info('Backend no disponible; usando modelos del navegador.', error);
-            this.availableModels = [...BROWSER_MODELS];
+        if (!modelsResponse && !registryResponse) {
+            console.info('Backend no disponible; usando modelos del navegador y espacios backend en espera.');
+            this.availableModels = this.buildModelCatalog();
+            return;
         }
+
+        this.availableModels = this.buildModelCatalog({
+            backendAvailable: true,
+            servedModels: modelsResponse?.models || [],
+            registryModels: registryResponse?.models || []
+        });
+    }
+
+    buildModelCatalog({ backendAvailable = false, servedModels = [], registryModels = [] } = {}) {
+        const servedById = new Map(servedModels.map((model) => [model.id, model]));
+        const registryById = new Map(registryModels.map((model) => [model.id, model]));
+        const customModels = CUSTOM_MODEL_SLOTS.map((slot) => {
+            const backendModel = registryById.get(slot.backendId) || servedById.get(slot.backendId);
+            return this.mergeBackendSlot(slot, backendModel, backendAvailable);
+        });
+
+        return [...BROWSER_MODELS, ...customModels];
+    }
+
+    async preloadImageOnlyModels() {
+        const hasSelectableBackendModels = this.availableModels.some(
+            (model) => model.runtime === 'backend' && model.selectable !== false
+        );
+
+        if (!hasSelectableBackendModels) return;
+
+        try {
+            this.ui.updateModelStatus('Listo - preparando modelos');
+            const status = await this.apiClient.preloadModels();
+            if (status.running) {
+                this.pollPreloadStatus();
+            } else {
+                this.ui.updateModelStatus('Listo');
+            }
+        } catch (error) {
+            console.info('No se pudo iniciar la precarga de modelos backend.', error);
+            this.ui.updateModelStatus('Listo');
+        }
+    }
+
+    async pollPreloadStatus() {
+        try {
+            const status = await this.apiClient.getPreloadStatus();
+            const completedModels = status.models?.filter((model) => model.status === 'ready' || model.status === 'failed').length || 0;
+            const totalModels = status.models?.length || 0;
+
+            if (status.running) {
+                this.ui.updateModelStatus(`Preparando modelos ${completedModels}/${totalModels}`);
+                window.setTimeout(() => this.pollPreloadStatus(), 4000);
+                return;
+            }
+
+            this.ui.updateModelStatus('Listo');
+        } catch (error) {
+            console.info('No se pudo consultar la precarga de modelos backend.', error);
+            this.ui.updateModelStatus('Listo');
+        }
+    }
+
+    mergeBackendSlot(slot, backendModel, backendAvailable) {
+        if (!backendModel) {
+            return {
+                ...slot,
+                selectable: false,
+                unavailableReason: backendAvailable
+                    ? 'Este modelo aun no esta registrado como servible en el backend.'
+                    : 'Inicia el backend local para conectar este modelo.',
+                metadata: null
+            };
+        }
+
+        return {
+            ...slot,
+            ...this.normalizeBackendModel(backendModel, backendAvailable, slot)
+        };
+    }
+
+    normalizeBackendModel(model, backendAvailable, fallback = {}) {
+        const status = model.status || fallback.status || 'unavailable';
+        const selectable = this.isBackendModelSelectable(model, backendAvailable);
+        const task = TASK_LABELS[model.task] || fallback.task || model.task || 'Inferencia backend';
+
+        return {
+            id: fallback.id || `backend:${model.id}`,
+            backendId: model.id,
+            name: model.name || fallback.name || model.id,
+            usageLabel: fallback.usageLabel || this.getUsageLabel(model.task),
+            runtime: 'backend',
+            modelType: model.task || fallback.modelType || 'backend',
+            supportsWebcam: false,
+            task,
+            algorithm: fallback.algorithm || model.runtime || 'backend',
+            efficiency: this.normalizeEfficiency(model.efficiency || fallback.efficiency || 'Medio'),
+            modeLabel: fallback.modeLabel || (model.supportsWebcam ? 'Imagen/camara' : 'Solo imagen'),
+            status,
+            statusLabel: MODEL_STATUS_LABELS[status] || status,
+            selectable,
+            unavailableReason: selectable ? '' : this.getBackendUnavailableReason(model, backendAvailable),
+            description: fallback.description || model.description || 'Modelo registrado en el backend interno.',
+            metadata: model
+        };
+    }
+
+    isBackendModelSelectable(model, backendAvailable) {
+        return Boolean(
+            backendAvailable &&
+            model?.serve !== false &&
+            CONNECTABLE_BACKEND_STATUSES.has(model?.status || 'unavailable')
+        );
+    }
+
+    getBackendUnavailableReason(model, backendAvailable) {
+        if (!backendAvailable) return 'Inicia el backend local para usar modelos propios.';
+        if (model?.serve === false) return 'Este modelo aun no esta expuesto para inferencia.';
+
+        const status = model?.status || 'unavailable';
+        if (status === 'planned') return 'Este espacio esta preparado, pero el modelo aun no ha sido entrenado.';
+        if (status === 'partial' || status === 'training') return 'Este modelo sigue en entrenamiento o validacion.';
+        if (status === 'failed') return 'El ultimo estado registrado del modelo tiene error.';
+
+        return 'Este modelo aun no esta listo para usarse desde la interfaz.';
+    }
+
+    getUsageLabel(task) {
+        if (task === 'object_detection') return 'Objetos';
+        if (task === 'image_classification') return 'Imagenes';
+        if (task === 'image_profile_classification') return 'Perfil';
+
+        return 'Backend';
+    }
+
+    normalizeEfficiency(efficiency) {
+        const normalized = (efficiency || 'Medio').toLowerCase();
+
+        if (normalized === 'rapido') return 'Rapido';
+        if (normalized.includes('lento')) return 'Lento';
+
+        return 'Medio';
     }
 
     setupEventListeners() {
@@ -117,14 +264,14 @@ class ImageClassifier {
 
     handleModelOptionClick(event) {
         const option = event.target.closest('.model-option');
-        if (!option) return;
+        if (!option || option.disabled) return;
 
         this.switchModel(option.dataset.modelId);
     }
 
     handleModelOptionKeydown(event) {
         const option = event.target.closest('.model-option');
-        if (!option) return;
+        if (!option || option.disabled) return;
 
         if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
@@ -141,7 +288,7 @@ class ImageClassifier {
         const direction = directionByKey[event.key];
         if (!direction) return;
 
-        const options = [...event.currentTarget.querySelectorAll('.model-option')];
+        const options = [...event.currentTarget.querySelectorAll('.model-option:not(:disabled)')];
         const currentIndex = options.indexOf(option);
         if (currentIndex === -1) return;
 
@@ -170,7 +317,7 @@ class ImageClassifier {
         const runId = this.nextRunId();
 
         try {
-            this.ui.showLoading();
+            this.ui.showLoading(this.getInferenceStatusMessage());
             this.ui.showActiveModel(this.currentModelInfo.name, true);
             this.ui.clearDetections();
             const startTime = performance.now();
@@ -184,7 +331,7 @@ class ImageClassifier {
             const processingTime = this.currentModelInfo.runtime === 'backend' && predictions.processing_time_ms
                 ? predictions.processing_time_ms.toFixed(2)
                 : (endTime - startTime).toFixed(2);
-            const normalizedPredictions = this.normalizePredictions(predictions);
+            const normalizedPredictions = this.normalizePredictionsForDisplay(predictions, imageElement);
 
             this.ui.displayResults(normalizedPredictions, this.currentModelInfo.name);
             this.ui.updateStats(normalizedPredictions, processingTime);
@@ -234,6 +381,11 @@ class ImageClassifier {
 
         if (!nextModel) {
             this.ui.showError('El modelo seleccionado no esta disponible.');
+            return;
+        }
+
+        if (nextModel.selectable === false) {
+            this.ui.showError(nextModel.unavailableReason || 'Este modelo aun no esta listo para usarse.');
             return;
         }
 
@@ -545,6 +697,54 @@ class ImageClassifier {
         return predictions.predictions || [];
     }
 
+    getInferenceStatusMessage() {
+        if (this.currentModelInfo.runtime === 'backend') {
+            return `Ejecutando ${this.currentModelInfo.name} desde backend...`;
+        }
+
+        return `Ejecutando ${this.currentModelInfo.name}...`;
+    }
+
+    normalizePredictionsForDisplay(predictionsPayload, sourceElement) {
+        const predictions = this.normalizePredictions(predictionsPayload);
+
+        if (this.currentModelInfo.runtime !== 'backend') {
+            return predictions;
+        }
+
+        const backendImageSize = predictionsPayload?.image;
+        const previewSize = this.getSourceSize(sourceElement);
+
+        if (!backendImageSize?.width || !backendImageSize?.height || !previewSize.width || !previewSize.height) {
+            return predictions;
+        }
+
+        const scaleX = previewSize.width / backendImageSize.width;
+        const scaleY = previewSize.height / backendImageSize.height;
+
+        return predictions
+            .map((prediction) => {
+                const scaledBbox = this.scaleBbox(prediction.bbox, scaleX, scaleY);
+
+                return {
+                    ...prediction,
+                    bbox: scaledBbox ? this.clampValidBbox(scaledBbox, previewSize) : scaledBbox
+                };
+            })
+            .filter((prediction) => !prediction.bbox || this.isValidBbox(prediction.bbox));
+    }
+
+    scaleBbox(bbox, scaleX, scaleY) {
+        if (!this.isValidBbox(bbox)) return bbox;
+
+        return [
+            bbox[0] * scaleX,
+            bbox[1] * scaleY,
+            bbox[2] * scaleX,
+            bbox[3] * scaleY
+        ];
+    }
+
     normalizeImageClassifications(classifications, sourceElement) {
         const sourceSize = this.getSourceSize(sourceElement);
         const imageBbox = this.fullImageBbox(sourceSize);
@@ -831,6 +1031,10 @@ class ImageClassifier {
     getSourceSize(sourceElement) {
         if (sourceElement instanceof HTMLVideoElement) {
             return { width: sourceElement.videoWidth, height: sourceElement.videoHeight };
+        }
+
+        if (sourceElement instanceof HTMLCanvasElement) {
+            return { width: sourceElement.width, height: sourceElement.height };
         }
 
         if (sourceElement instanceof HTMLImageElement) {

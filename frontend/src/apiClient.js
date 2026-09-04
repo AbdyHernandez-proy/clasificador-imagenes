@@ -14,6 +14,36 @@ export class ClassifierApiClient {
         return await response.json();
     }
 
+    async listModelRegistry() {
+        const response = await this.fetchWithTimeout(`${this.baseUrl}/models/registry`, { timeout: 2500 });
+        if (!response.ok) {
+            throw new Error('No se pudo cargar el registro completo de modelos.');
+        }
+
+        return await response.json();
+    }
+
+    async preloadModels() {
+        const response = await this.fetchWithTimeout(`${this.baseUrl}/models/preload`, {
+            method: 'POST',
+            timeout: 2500
+        });
+        if (!response.ok) {
+            throw new Error('No se pudo iniciar la precarga de modelos.');
+        }
+
+        return await response.json();
+    }
+
+    async getPreloadStatus() {
+        const response = await this.fetchWithTimeout(`${this.baseUrl}/models/preload`, { timeout: 2500 });
+        if (!response.ok) {
+            throw new Error('No se pudo consultar la precarga de modelos.');
+        }
+
+        return await response.json();
+    }
+
     async predict(imageFile, modelId) {
         const formData = new FormData();
         formData.append('image', imageFile);

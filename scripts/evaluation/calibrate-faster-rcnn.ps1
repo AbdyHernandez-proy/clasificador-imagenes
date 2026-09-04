@@ -1,0 +1,40 @@
+param(
+    [int]$Limit = 120,
+    [int]$VisualLimit = 20,
+    [string]$Device = "auto",
+    [string]$OutputDir = "",
+    [string]$Combos = "",
+    [string]$VenvPath = ""
+)
+
+$ErrorActionPreference = "Stop"
+
+$ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
+if (-not $VenvPath) {
+    $VenvPath = Join-Path $env:USERPROFILE ".ciml\venv"
+}
+
+$PythonPath = Join-Path $VenvPath "Scripts\python.exe"
+if (-not (Test-Path -LiteralPath $PythonPath)) {
+    $PythonPath = "python"
+}
+
+$ArgsList = @(
+    "-m", "ml.evaluation.calibrate_torchvision_direct",
+    "--model", "custom-faster-rcnn-detector",
+    "--dataset", "voc-detect",
+    "--limit", "$Limit",
+    "--visual-limit", "$VisualLimit",
+    "--device", $Device
+)
+
+if ($OutputDir) {
+    $ArgsList += @("--output-dir", $OutputDir)
+}
+
+if ($Combos) {
+    $ArgsList += @("--combos", $Combos)
+}
+
+Set-Location $ProjectRoot
+& $PythonPath @ArgsList

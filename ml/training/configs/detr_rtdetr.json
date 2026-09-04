@@ -1,30 +1,41 @@
 {
-  "id": "custom-detr-rtdetr-detector",
-  "name": "DETR / RT-DETR Detector",
-  "architecture_family": "DETR",
-  "framework": "transformers",
-  "task": "object_detection",
-  "status": "scaffold",
-  "default_dataset_id": "coco128-detect",
-  "compatible_dataset_formats": [
-    "yolo"
-  ],
-  "compatible_dataset_tasks": [
-    "object_detection"
-  ],
-  "target_class_set": "coco80",
-  "target_class_count": 80,
-  "target_classes_path": "ml/training/datasets/coco_classes.py",
-  "target_description": "Detecta las 80 clases de COCO: personas, vehiculos, animales, objetos cotidianos, comida, muebles y electronica.",
-  "artifact_path": "ml/models/custom-detr-rtdetr-detector/model",
-  "suggested_base_weights": [
-    "facebook/detr-resnet-50",
-    "PekingU/rtdetr_r50vd"
-  ],
-  "recommended_for": [
-    "arquitectura basada en transformers",
-    "comparacion contra detectores CNN",
-    "deteccion moderna en backend"
-  ],
-  "notes": "Necesita pipeline Hugging Face/Transformers o RT-DETR especifico. El dataset YOLO debe transformarse a formato COCO-like durante entrenamiento."
+    "id":  "custom-detr-rtdetr-detector",
+    "name":  "DETR / RT-DETR Detector",
+    "architecture_family":  "DETR",
+    "framework":  "ultralytics",
+    "task":  "object_detection",
+    "status":  "trainable_local",
+    "default_dataset_id":  "voc-detect",
+    "compatible_dataset_formats":  [
+                                       "yolo"
+                                   ],
+    "compatible_dataset_tasks":  [
+                                     "object_detection"
+                                 ],
+    "target_class_set":  "voc20",
+    "target_class_count":  20,
+    "target_description":  "Detecta 20 clases PASCAL VOC: personas, vehiculos, animales, muebles y objetos comunes.",
+    "artifact_path":  "ml/models/custom-detr-rtdetr-detector/rtdetr-detector.pt",
+    "latest_artifact_path":  "ml/models/custom-detr-rtdetr-detector/rtdetr-detector.pt",
+    "suggested_base_weights":  [
+                                   "rtdetr-l.pt",
+                                   "rtdetr-x.pt"
+                               ],
+    "training_plan":  {
+                          "epochs":  10,
+                          "batch":  1,
+                          "image_size":  512,
+                          "workers":  0,
+                          "device":  "auto",
+                          "base_weights":  "rtdetr-l.pt",
+                          "dataset_id":  "voc-detect",
+                          "training_script":  "scripts/training/train-rtdetr.ps1",
+                          "checkpoint_policy":  "Version final de despliegue: se conserva solo el artefacto final con nombre del modelo. last.pt y metricas externas se regeneran si se entrena nuevamente."
+                      },
+    "recommended_for":  [
+                            "comparar arquitectura transformer contra detectores CNN",
+                            "evaluar detecciones con menos postprocesamiento manual",
+                            "detector backend moderno"
+                        ],
+    "notes":  "Version final de despliegue: se conserva solo el artefacto final con nombre del modelo. last.pt, metrics.json y training_summary.json se eliminaron tras consolidar metricas en docs y registry."
 }

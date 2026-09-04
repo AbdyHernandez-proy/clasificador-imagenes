@@ -4,7 +4,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$ProjectRoot = Split-Path -Parent $PSScriptRoot
+$ProjectRoot = Resolve-Path (Join-Path $PSScriptRoot "..\..")
 $ProgressPath = Join-Path $ProjectRoot "ml\models\$Model\training_progress.json"
 $EventsPath = Join-Path $ProjectRoot "ml\models\$Model\training_events.jsonl"
 $ValidationPath = Join-Path $ProjectRoot "ml\models\$Model\validation_history.json"
@@ -71,6 +71,7 @@ if (Test-Path -LiteralPath $ValidationPath) {
         $TP = if ($Summary) { $Summary.true_positives_at_50 } else { $LastValidation.true_positives_at_50 }
         $FP = if ($Summary) { $Summary.false_positives_at_50 } else { $LastValidation.false_positives_at_50 }
         $FN = if ($Summary) { $Summary.false_negatives_at_50 } else { $LastValidation.false_negatives_at_50 }
+        $VisualOutputDir = if ($LastValidation.summary) { $LastValidation.summary.visual_output_dir } else { $null }
 
         Write-Host ""
         Write-Host "Ultima validacion:"
@@ -80,6 +81,9 @@ if (Test-Path -LiteralPath $ValidationPath) {
         Write-Host "Precision@50: $Precision"
         Write-Host "Recall@50: $Recall"
         Write-Host "TP/FP/FN: $TP / $FP / $FN"
+        if ($VisualOutputDir) {
+            Write-Host "Visuales: $VisualOutputDir"
+        }
     }
 }
 
